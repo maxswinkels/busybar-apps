@@ -1,0 +1,102 @@
+---
+import type { CollectionEntry } from 'astro:content';
+
+interface Props {
+  app: CollectionEntry<'apps'>;
+  slug: string;
+}
+
+const { app, slug } = Astro.props;
+const { name, author, description, tags, preview } = app.data;
+const baseUrl = import.meta.env.BASE_URL;
+---
+
+<a href={`${baseUrl}apps/${slug}/`} class="app-card">
+  <div class="app-preview">
+    <img src={preview.src} alt={name} />
+  </div>
+  <div class="app-info">
+    <h3 class="app-name">{name}</h3>
+    <p class="app-author">@{author}</p>
+    <p class="app-description">{description}</p>
+    <div class="app-tags">
+      {tags.map(tag => (
+        <span class="app-tag">{tag}</span>
+      ))}
+    </div>
+  </div>
+</a>
+
+<style>
+  .app-card {
+    display: block;
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    transition: all var(--transition-normal);
+    color: inherit;
+    text-decoration: none;
+  }
+
+  .app-card:hover {
+    border-color: var(--color-primary);
+    box-shadow: 0 4px 12px rgba(234, 82, 18, 0.1);
+  }
+
+  .app-preview {
+    background: #0a0a0c;
+    aspect-ratio: 72 / 16;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .app-preview img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    image-rendering: pixelated;
+  }
+
+  .app-info {
+    padding: var(--sp-md);
+  }
+
+  .app-name {
+    margin: 0 0 4px 0;
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--color-text);
+  }
+
+  .app-author {
+    margin: 0 0 8px 0;
+    font-size: 13px;
+    color: var(--color-text-secondary);
+    font-family: var(--font-mono);
+  }
+
+  .app-description {
+    margin: 0 0 12px 0;
+    font-size: 14px;
+    color: var(--color-text-secondary);
+    line-height: 1.5;
+  }
+
+  .app-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .app-tag {
+    display: inline-block;
+    font-size: 12px;
+    background: #f5f5f7;
+    color: var(--color-text-secondary);
+    padding: 4px 8px;
+    border-radius: var(--radius-sm);
+  }
+</style>

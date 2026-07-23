@@ -1,0 +1,61 @@
+@import url("@fontsource-variable/inter/index.css");
+@import url("@fontsource-variable/jetbrains-mono/index.css");
+
+:root {
+  /* Colors */
+  --color-bg: #f5f5f7;
+  --color-surface: white;
+  --color-text: #111;
+  --color-text-secondary: #7a7a86;
+  --color-border: #e2e2e6;
+  --color-primary: #ea5212;
+
+  /* Fonts */
+  --font-ui: "Inter Variable", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono Variable", "Courier New", monospace;
+
+  /* Spacing */
+  --sp-xs: 4px;
+  --sp-sm: 8px;
+  --sp-md: 16px;
+  --sp-lg: 24px;
+  --sp-xl: 32px;
+
+  /* Border radius */
+  --radius-sm: 3px;
+  --radius-md: 5px;
+  --radius-lg: 8px;
+
+  /* Transitions */
+  --transition-fast: 0.15s ease-out;
+  --transition-normal: 0.2s ease-out;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  background: var(--color-bg);
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+main {
+  flex: 1;
+  padding: var(--sp-xl) 0;
+}
+
+.container {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 0 var(--sp-md);
+  width: 100%;
+}

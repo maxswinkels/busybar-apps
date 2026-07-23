@@ -1,0 +1,7 @@
+name: Weather
+author: maxswinkels
+description: Weather widget - displays temperature and conditions with icon.
+tags:
+  - weather
+  - info
+preview: ./preview.png

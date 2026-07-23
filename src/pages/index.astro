@@ -1,0 +1,101 @@
+---
+import Layout from '../layouts/Layout.astro';
+import AppCard from '../components/AppCard.astro';
+import { getCollection } from 'astro:content';
+
+const apps = (await getCollection('apps')).sort((a, b) =>
+  a.data.name.localeCompare(b.data.name)
+);
+
+const baseUrl = import.meta.env.BASE_URL;
+---
+
+<Layout title="BUSY Bar Apps — community app gallery">
+  <div class="container">
+    <section class="hero">
+      <h1>Community apps for BUSY Bar</h1>
+      <p class="hero-subtitle">A gallery of community-built apps for the 72×16 RGB LED productivity device.</p>
+      <a href="https://github.com/maxswinkels/busybar-apps/blob/main/CONTRIBUTING.md" target="_blank" class="hero-button">
+        SUBMIT YOUR APP
+      </a>
+    </section>
+
+    <section class="apps-section">
+      <h2>All apps</h2>
+      <div class="apps-grid">
+        {apps.map((app) => (
+          <AppCard app={app} slug={app.id.split('/')[0]} />
+        ))}
+      </div>
+    </section>
+  </div>
+</Layout>
+
+<style>
+  .hero {
+    text-align: center;
+    margin-bottom: 48px;
+    padding: 32px 0;
+  }
+
+  .hero h1 {
+    font-size: 36px;
+    margin-bottom: 16px;
+    color: var(--color-text);
+  }
+
+  .hero-subtitle {
+    font-size: 18px;
+    color: var(--color-text-secondary);
+    max-width: 600px;
+    margin: 0 auto 24px;
+  }
+
+  .hero-button {
+    display: inline-block;
+    background: var(--color-primary);
+    color: white;
+    padding: 12px 24px;
+    border-radius: var(--radius-md);
+    font-weight: 600;
+    font-size: 14px;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    transition: all var(--transition-normal);
+    text-decoration: none;
+  }
+
+  .hero-button:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(234, 82, 18, 0.3);
+  }
+
+  .apps-section {
+    margin-top: 48px;
+  }
+
+  .apps-section h2 {
+    margin-top: 0;
+  }
+
+  .apps-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 24px;
+    margin-top: 24px;
+  }
+
+  @media (max-width: 768px) {
+    .hero h1 {
+      font-size: 28px;
+    }
+
+    .hero-subtitle {
+      font-size: 16px;
+    }
+
+    .apps-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
