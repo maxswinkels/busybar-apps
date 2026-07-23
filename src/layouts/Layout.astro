@@ -15,13 +15,13 @@ const baseUrl = import.meta.env.BASE_URL;
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{title}</title>
-    <link rel="icon" type="image/svg+xml" href={`${baseUrl}favicon.svg`} />
+    <link rel="icon" type="image/png" href={`${baseUrl}favicon.png`} />
   </head>
   <body>
     <header class="site-header">
       <div class="container">
         <div class="logo">
-          <span class="logo-busy">BUSY</span>
+          <img src={`${baseUrl}brand/logo.svg`} alt="BUSY" class="logo-img" />
           <span class="logo-text">Bar Apps</span>
         </div>
         <nav class="nav">
@@ -115,12 +115,9 @@ const baseUrl = import.meta.env.BASE_URL;
     letter-spacing: -0.02em;
   }
 
-  .logo-busy {
-    background: var(--color-primary);
-    color: white;
-    padding: 4px 10px;
-    border-radius: 5px;
-    font-weight: 700;
+  .logo-img {
+    height: 28px;
+    display: block;
   }
 
   .logo-text {

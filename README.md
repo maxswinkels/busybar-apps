@@ -1,37 +1,91 @@
-# BUSY Bar Apps
+<p align="center">
+  <img src=".github/logo.svg" width="180" alt="BUSY" />
+</p>
 
-An unofficial community gallery for apps built for the [BUSY Bar](https://getbusy.bar) — a 72×16 RGB LED matrix productivity gadget.
+<h1 align="center">BUSY Bar Apps</h1>
 
-**Live site:** https://maxswinkels.github.io/busybar-apps/
+<p align="center">
+  A community gallery of apps for the <code>BUSY Bar</code>.<br>
+  Browse, grab the code, and share your own via pull request.
+</p>
 
-## About
+<p align="center">
+  <a href="https://maxswinkels.github.io/busybar-apps/">Live gallery</a> &middot; <a href="#submit-your-app">Submit an app</a> &middot; <a href="CONTRIBUTING.md">CONTRIBUTING.md</a>
+</p>
 
-BUSY Bar Apps is a community-driven repository where developers can share custom applications for their BUSY Bar devices. Apps are submitted via pull request, and the site auto-validates them against a schema before merging.
+<p align="center">
+  <img src="https://img.shields.io/badge/site-live-ea5212" alt="Live" />
+  <img src="https://img.shields.io/badge/built%20with-Astro%205-FF5D01" alt="Astro" />
+  <img src="https://img.shields.io/badge/submissions-pull%20requests-2B7FFF" alt="Submissions" />
+  <img src="https://img.shields.io/badge/code-MIT-yellow" alt="License" />
+</p>
 
-## How to submit your app
+<p align="center">
+  <img src="docs/assets/hero.png" width="720" alt="BUSY Bar Apps" />
+</p>
 
-See [CONTRIBUTING.md](./CONTRIBUTING.md) for step-by-step instructions.
+---
 
-**Quick summary:**
-1. Fork this repository
-2. Create a new folder in `apps/` with your app's slug (kebab-case)
-3. Add `app.py`, `manifest.yaml`, and a preview image (`preview.png` or `preview.gif`)
-4. Open a pull request
+> [!IMPORTANT]
+> **Unofficial community project.** Built and maintained by [Max Swinkels](https://github.com/maxswinkels), **not** an official Flipper Devices / BUSY product, and not affiliated with, endorsed by, or supported by them. "BUSY Bar" remains their trademark. For the real hardware and official apps, visit **[busy.app](https://busy.app)**.
+
+## Why
+
+- **Share working 72×16 apps.** The community gallery is a single place to browse and grab complete, tested applications.
+- **Every app runs unchanged on real hardware or the emulator.** No special adaptations. Just swap the host. Apps you build here work exactly the same on the real BUSY Bar.
+- **Pull request CI validates every submission.** The site's build checks your manifest schema, so there are no surprises when your PR lands.
+
+## Browse apps
+
+Visit the [live gallery](https://maxswinkels.github.io/busybar-apps/) to browse community apps. Each app page shows:
+
+- **Preview image** of the app on the 72×16 LED display
+- **Full source code** with syntax highlighting and a copy-to-clipboard button
+- **Manifest metadata** (author, description, tags) and links to the app folder on GitHub
+
+## Submit your app
+
+1. **Fork** this repository
+2. **Create** `apps/<your-slug>/` with:
+   - `app.py` — your app (stdlib + `busybar.py` only)
+   - `manifest.yaml` — metadata
+   - `preview.png` or `preview.gif` — 720×160 screenshot
+3. **Open a pull request** (use the checklist in the PR template)
+4. **CI validates** your manifest schema; fix any errors and push again
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed instructions, app conventions, and the manifest schema.
+
+### Example manifest
+
+```yaml
+name: Clock
+author: maxswinkels
+description: Clock widget - big time, refreshed every second.
+tags:
+  - clock
+  - time
+preview: ./preview.png
+```
 
 ## Local development
 
+Build and test the gallery locally:
+
 ```bash
 npm install
-npm run dev       # Start dev server on localhost:4321
-npm run build     # Build for production
+npm run dev       # Dev server on localhost:3000
+npm run build     # Static build to dist/
 ```
 
-The site uses [Astro](https://astro.build) for static generation and content collections for schema validation.
+The site uses [Astro](https://astro.build) content collections to validate every app's manifest against a schema.
 
-## Disclaimer
+## Related projects
 
-**BUSY Bar Apps is an unofficial community project.** BUSY Bar is a trademark of Flipper Devices Inc. and this project is not affiliated with or endorsed by Flipper Devices.
+- **[busybar-emulator](https://github.com/maxswinkels/busybar-emulator)** — build and test apps locally with a faithful HTTP API, fonts, and pixel-perfect rendering
+- **[busy.app](https://busy.app)** — the real hardware and official apps from Flipper Devices
 
 ## License
 
-MIT License — see [LICENSE](./LICENSE)
+Code is [MIT](LICENSE). All apps in this gallery are submitted under MIT (license badge appears on submission).
+
+"BUSY Bar" is a trademark of Flipper Devices. This project is unaffiliated and unofficial.
