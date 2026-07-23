@@ -137,7 +137,7 @@ Once you open the PR:
 - The site will build a preview of your app page
 - If validation fails, the PR shows which fields need fixing
 
-Fix any errors and push again—the PR updates automatically.
+Fix any errors and push again; the PR updates automatically.
 
 ## Tips
 

@@ -47,9 +47,9 @@ Visit the [live gallery](https://maxswinkels.github.io/busybar-apps/) to browse 
 
 1. **Fork** this repository
 2. **Create** `apps/<your-slug>/` with:
-   - `app.py` — your app (stdlib + `busybar.py` only)
-   - `manifest.yaml` — metadata
-   - `preview.png` or `preview.gif` — 720×160 screenshot
+   - `app.py`: your app (stdlib + `busybar.py` only)
+   - `manifest.yaml`: metadata
+   - `preview.png` or `preview.gif`: 720×160 screenshot
 3. **Open a pull request** (use the checklist in the PR template)
 4. **CI validates** your manifest schema; fix any errors and push again
 
@@ -81,8 +81,8 @@ The site uses [Astro](https://astro.build) content collections to validate every
 
 ## Related projects
 
-- **[busybar-emulator](https://github.com/maxswinkels/busybar-emulator)** — build and test apps locally with a faithful HTTP API, fonts, and pixel-perfect rendering
-- **[busy.app](https://busy.app)** — the real hardware and official apps from Flipper Devices
+- **[busybar-emulator](https://github.com/maxswinkels/busybar-emulator)**: build and test apps locally with a faithful HTTP API, fonts, and pixel-perfect rendering
+- **[busy.app](https://busy.app)**: the real hardware and official apps from Flipper Devices
 
 ## License
 
