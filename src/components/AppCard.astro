@@ -31,17 +31,17 @@ const baseUrl = import.meta.env.BASE_URL;
   .app-card {
     display: block;
     background: var(--color-surface);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-md);
+    border-radius: 24px;
+    box-shadow: var(--glass-shadow);
     overflow: hidden;
-    transition: all var(--transition-normal);
+    transition: box-shadow var(--transition-normal);
     color: inherit;
     text-decoration: none;
   }
 
   .app-card:hover {
-    border-color: var(--color-primary);
-    box-shadow: 0 4px 12px rgba(234, 82, 18, 0.1);
+    box-shadow: inset 0 1px 1px 0 var(--ring-in), 0 0 0 1px var(--color-primary),
+      0 18px 40px -24px rgba(0, 0, 0, 0.5);
   }
 
   .app-preview {
