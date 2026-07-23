@@ -36,7 +36,10 @@ const appSource = await readFile(appPyPath, 'utf-8');
   <div class="container">
     <div class="app-detail">
       <div class="app-preview">
-        <img src={preview.src} alt={name} />
+        <div class="device">
+          <img class="device-illu" src={`${baseUrl}brand/busybar-device.png`} alt="" aria-hidden="true" />
+          <img class="device-screen" src={preview.src} alt={name} />
+        </div>
       </div>
 
       <div class="app-header">
@@ -116,21 +119,38 @@ const appSource = await readFile(appPyPath, 'utf-8');
   }
 
   .app-preview {
-    background: #0a0a0c;
-    border-radius: var(--radius-md);
-    overflow: hidden;
-    aspect-ratio: 72 / 16;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    padding: 40px 32px 24px;
+    background: linear-gradient(180deg, #f2f2f4 0%, #fafafa 100%);
+    border-radius: 24px;
+    box-shadow: var(--glass-shadow);
     margin-bottom: 32px;
   }
 
-  .app-preview img {
+  .device {
+    position: relative;
     width: 100%;
-    height: 100%;
-    object-fit: contain;
+    max-width: 560px;
+    margin: 0 auto;
+    filter: drop-shadow(0 20px 36px rgba(0, 0, 0, 0.3));
+  }
+
+  .device-illu {
+    display: block;
+    width: 100%;
+    height: auto;
+    user-select: none;
+    -webkit-user-drag: none;
+  }
+
+  .device-screen {
+    position: absolute;
+    left: 50%;
+    top: 56.85%;
+    transform: translate(-50%, -50%);
+    width: 93.5%;
+    height: auto;
     image-rendering: pixelated;
+    border-radius: 2px;
   }
 
   .app-header {

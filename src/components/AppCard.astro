@@ -13,7 +13,10 @@ const baseUrl = import.meta.env.BASE_URL;
 
 <a href={`${baseUrl}apps/${slug}/`} class="app-card">
   <div class="app-preview">
-    <img src={preview.src} alt={name} />
+    <div class="device">
+      <img class="device-illu" src={`${baseUrl}brand/busybar-device.png`} alt="" aria-hidden="true" />
+      <img class="device-screen" src={preview.src} alt={name} />
+    </div>
   </div>
   <div class="app-info">
     <h3 class="app-name">{name}</h3>
@@ -45,19 +48,34 @@ const baseUrl = import.meta.env.BASE_URL;
   }
 
   .app-preview {
-    background: #0a0a0c;
-    aspect-ratio: 72 / 16;
-    overflow: hidden;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    padding: 24px 20px 12px;
+    background: linear-gradient(180deg, #f2f2f4 0%, #fafafa 100%);
   }
 
-  .app-preview img {
+  .device {
+    position: relative;
     width: 100%;
-    height: 100%;
-    object-fit: contain;
+    margin: 0 auto;
+    filter: drop-shadow(0 14px 26px rgba(0, 0, 0, 0.28));
+  }
+
+  .device-illu {
+    display: block;
+    width: 100%;
+    height: auto;
+    user-select: none;
+    -webkit-user-drag: none;
+  }
+
+  .device-screen {
+    position: absolute;
+    left: 50%;
+    top: 56.85%;
+    transform: translate(-50%, -50%);
+    width: 93.5%;
+    height: auto;
     image-rendering: pixelated;
+    border-radius: 2px;
   }
 
   .app-info {
