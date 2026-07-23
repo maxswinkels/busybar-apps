@@ -1,0 +1,7 @@
+name: Mac Monitor
+author: maxswinkels
+description: Mac system monitor - CPU, memory and network as live bars.
+tags:
+  - monitor
+  - system
+preview: ./preview.png
