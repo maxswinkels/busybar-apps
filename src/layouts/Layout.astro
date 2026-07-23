@@ -39,11 +39,10 @@ const baseUrl = import.meta.env.BASE_URL;
     <footer class="site-footer">
       <div class="container">
         <p class="footer-text">
-          Unofficial community project. BUSY Bar is a trademark of Flipper Devices Inc.
-          Not affiliated with or endorsed by Flipper Devices.
+          © {new Date().getFullYear()} <a href="https://github.com/maxswinkels" target="_blank" rel="noopener">Max Swinkels</a> · <a href="https://github.com/maxswinkels/busybar-apps/blob/main/LICENSE" target="_blank" rel="noopener">MIT license</a>
         </p>
-        <p class="footer-links">
-          <a href="https://github.com/maxswinkels/busybar-apps" target="_blank">GitHub Repository</a>
+        <p class="footer-text">
+          Unofficial project. "BUSY Bar" is a trademark of <a href="https://busy.app" target="_blank" rel="noopener">Flipper Devices</a>. Bundled fonts &amp; artwork © Flipper Devices (CC-BY 4.0 / SIL OFL 1.1).
         </p>
       </div>
     </footer>
@@ -154,19 +153,22 @@ const baseUrl = import.meta.env.BASE_URL;
     font-size: 13px;
   }
 
-  .footer-text {
-    margin: 0 0 12px 0;
+  .site-footer .container {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
   }
 
-  .footer-links {
+  .footer-text {
     margin: 0;
   }
 
-  .footer-links a {
+  .footer-text a {
     color: var(--color-text-secondary);
+    text-decoration: underline;
   }
 
-  .footer-links a:hover {
+  .footer-text a:hover {
     color: var(--color-primary);
   }
 </style>
