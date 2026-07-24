@@ -1,0 +1,8 @@
+name: Moneybird Invoice Paid
+author: maxswinkels
+description: Watches your Moneybird administration and celebrates every newly paid invoice with a coin rain, an odometer count-up of the amount and a cash-register sound.
+tags:
+  - monitor
+  - info
+  - effect
+preview: ./preview.gif
