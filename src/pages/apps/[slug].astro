@@ -65,15 +65,20 @@ const appSource = await readFile(appPyPath, 'utf-8');
       <section class="section">
         <h2>How to run</h2>
         <p>
-          This app requires the <code>busybar.py</code> client library from the
-          <a href="https://github.com/maxswinkels/busybar-emulator" target="_blank">BUSY Bar Emulator</a>.
+          This app is a single Python file that talks directly to the BUSY Bar HTTP API —
+          no libraries, no setup. Connect your bar via USB and run:
         </p>
         <div class="code-snippet">
-          <pre><code>python app.py &lt;host&gt;</code></pre>
+          <pre><code>python app.py</code></pre>
         </div>
         <p>
-          For local development, run the emulator first, then execute the app with the emulator's address
-          (default <code>127.0.0.1:8080</code>).
+          Over USB the bar is always at <code>10.0.4.20</code>. On Wi-Fi, pass the bar's IP
+          with <code>--host &lt;address&gt;</code>.
+        </p>
+        <p>
+          No bar at hand? Run the
+          <a href="https://github.com/maxswinkels/busybar-emulator" target="_blank">BUSY Bar Emulator</a>
+          and point the app at it: <code>python app.py --host 127.0.0.1:8080</code>.
         </p>
       </section>
 

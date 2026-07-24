@@ -32,7 +32,7 @@
 ## Why
 
 - **Share working 72×16 apps.** The community gallery is a single place to browse and grab complete, tested applications.
-- **Every app runs unchanged on real hardware or the emulator.** No special adaptations. Just swap the host. Apps you build here work exactly the same on the real BUSY Bar.
+- **Every app is one self-contained file that drives the bar directly.** Stdlib-only Python talking straight to the BUSY Bar HTTP API — over USB the bar is always at `10.0.4.20`, so `python app.py` just works. The same file runs unchanged against the emulator (`--host 127.0.0.1:8080`).
 - **Pull request CI validates every submission.** The site's build checks your manifest schema, so there are no surprises when your PR lands.
 
 ## Browse apps
@@ -47,7 +47,7 @@ Visit the [live gallery](https://maxswinkels.github.io/busybar-apps/) to browse 
 
 1. **Fork** this repository
 2. **Create** `apps/<your-slug>/` with:
-   - `app.py`: your app (stdlib + `busybar.py` only)
+   - `app.py`: your app (a single self-contained file, stdlib only)
    - `manifest.yaml`: metadata
    - `preview.png` or `preview.gif`: 720×160 screenshot
 3. **Open a pull request** (use the checklist in the PR template)

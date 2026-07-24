@@ -1,18 +1,45 @@
 #!/usr/bin/env python3
 """Demoscene pixel effects: fire, matrix rain, plasma.
 
-    python3 apps/pixel_fire.py [fire|rain|plasma] [--host 127.0.0.1:8080]
+    python app.py [fire|rain|plasma]     # BUSY Bar over USB (always 10.0.4.20)
+    python app.py --host 127.0.0.1:8080  # emulator or a Wi-Fi bar
 """
+import json
 import math
 import random
 import sys
-
-from busybar import BusyBar, BusyBarError, rectangle, host_from_argv, run_loop
+import time
+import urllib.error
+import urllib.request
 
 APP = "demo.fire"
-bar = BusyBar(host_from_argv())
-
 W, H = 72, 16
+
+# ---------------------------------------------------------------------------
+# BUSY Bar HTTP API — self-contained, stdlib only.
+# Over USB the bar is always at 10.0.4.20; --host targets a Wi-Fi bar or the
+# emulator. Full API docs are served by the device: http://10.0.4.20/docs
+# ---------------------------------------------------------------------------
+
+def _host(default="10.0.4.20"):
+    if "--host" in sys.argv:
+        i = sys.argv.index("--host")
+        if i + 1 < len(sys.argv):
+            return sys.argv[i + 1]
+    return default
+
+BASE = "http://" + _host().replace("http://", "").rstrip("/")
+
+def draw(elements, **extra):
+    body = {"application_name": APP, "elements": elements, **extra}
+    req = urllib.request.Request(BASE + "/api/display/draw",
+                                 data=json.dumps(body).encode(), method="POST",
+                                 headers={"Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=5):
+        pass
+
+def rectangle(x, y, width, height, **kw):
+    return {"type": "rectangle", "x": x, "y": y, "width": width, "height": height, **kw}
 
 # ---------------------------------------------------------------------------
 # Effect selection
@@ -263,13 +290,21 @@ def tick():
             rects = _tick_rain()
         else:
             rects = _tick_plasma()
-        bar.display_draw(APP, rects)
-    except BusyBarError as e:
-        if "→ 409" in str(e):
-            return
-        raise
+        draw(rects)
+    except urllib.error.HTTPError as e:
+        if e.code != 409:  # 409 = a higher-priority app owns the display
+            raise
 
 
 if __name__ == "__main__":
-    print(f"pixel_fire [{EFFECT}] → {bar.base}  (Ctrl-C to stop)")
-    run_loop(tick, interval=0.05)
+    print(f"pixel_fire [{EFFECT}] → {BASE}  (Ctrl-C to stop)")
+    try:
+        while True:
+            tick()
+            time.sleep(0.05)
+    except KeyboardInterrupt:
+        print("\nstopped.")
+    except urllib.error.HTTPError as e:
+        sys.exit(f"error: HTTP {e.code} — {e.read().decode('utf-8', 'ignore')}")
+    except urllib.error.URLError as e:
+        sys.exit(f"error: cannot reach {BASE} — {e.reason}")

@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Moneybird Invoice Paid: celebrate every paid invoice with coins and a cash-register sound.
 
-    python3 apps/moneybird-invoice-paid/app.py [--host 127.0.0.1:8080] [--test] [--interval 60]
+    python app.py [--test] [--interval 60]      # BUSY Bar over USB (always 10.0.4.20)
+    python app.py --host 127.0.0.1:8080 --test  # emulator or a Wi-Fi bar
 
     --test        Preview the celebration with a fake invoice and exit 0.
                   No Moneybird account or token is needed.
@@ -33,8 +34,6 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import wave
-
-from busybar import BusyBar, BusyBarError, rectangle, text, host_from_argv
 
 # ---------------------------------------------------------------------------
 # .env loader (inline; no third-party deps)
@@ -71,6 +70,58 @@ _load_dotenv()
 
 APP = "maxswinkels.moneybird"
 W, H = 72, 16
+
+# ---------------------------------------------------------------------------
+# BUSY Bar HTTP API — self-contained, stdlib only.
+# Over USB the bar is always at 10.0.4.20; --host targets a Wi-Fi bar or the
+# emulator. Full API docs are served by the device: http://10.0.4.20/docs
+# ---------------------------------------------------------------------------
+
+def _host(default="10.0.4.20"):
+    if "--host" in sys.argv:
+        i = sys.argv.index("--host")
+        if i + 1 < len(sys.argv):
+            return sys.argv[i + 1]
+    return default
+
+BASE = "http://" + _host().replace("http://", "").rstrip("/")
+
+def api(method, path, body=None, raw=None, ctype="application/octet-stream"):
+    data, headers = None, {}
+    if raw is not None:
+        data, headers["Content-Type"] = raw, ctype
+    elif body is not None:
+        data, headers["Content-Type"] = json.dumps(body).encode(), "application/json"
+    req = urllib.request.Request(BASE + path, data=data, method=method, headers=headers)
+    with urllib.request.urlopen(req, timeout=5):
+        pass
+
+def draw(elements, **extra):
+    api("POST", "/api/display/draw", {"application_name": APP, "elements": elements, **extra})
+
+def clear():
+    api("DELETE", "/api/display/draw?application_name=" + APP)
+
+def play_audio(path=None, stock_path=None):
+    body = {"application_name": APP}
+    if path is not None:
+        body["path"] = path
+    if stock_path is not None:
+        body["stock_path"] = stock_path
+    api("POST", "/api/audio/play", body)
+
+def upload_asset(file, data):
+    q = urllib.parse.urlencode({"application_name": APP, "file": file})
+    api("POST", "/api/assets/upload?" + q, raw=data)
+
+def text(txt, x=0, y=0, font="normal", color="0xFFFFFFFF", **kw):
+    return {"type": "text", "text": str(txt), "x": x, "y": y, "font": font, "color": color, **kw}
+
+def rectangle(x, y, width, height, **kw):
+    return {"type": "rectangle", "x": x, "y": y, "width": width, "height": height, **kw}
+
+class RequestError(RuntimeError):
+    """A Moneybird API request failed (non-401)."""
 
 # ---------------------------------------------------------------------------
 # CLI args
@@ -314,27 +365,27 @@ _CHACHING_WAV = synth_chaching_wav()
 SOUND_UPLOADED = False
 
 
-def upload_sound(bar):
+def upload_sound():
     """Upload the synthesized cash-register WAV as an app asset; returns True on success."""
     try:
-        bar.assets_upload(APP, "cha_ching.wav", _CHACHING_WAV)
+        upload_asset("cha_ching.wav", _CHACHING_WAV)
         return True
-    except (OSError, BusyBarError):
+    except OSError:
         return False
 
 # ---------------------------------------------------------------------------
 # Celebration
 # ---------------------------------------------------------------------------
 
-def _draw_frame(bar, elements, first_draw_flag):
+def _draw_frame(elements, first_draw_flag):
     """Send one frame; returns (ok, first_draw_flag).
     On 409: silent skip. On first frame 409 returns (False, False).
-    Re-raises other BusyBarErrors."""
+    Re-raises other errors."""
     try:
-        bar.display_draw(APP, elements, priority=90, led_notification_color="0xFFD700FF")
+        draw(elements, priority=90, led_notification_color="0xFFD700FF")
         return True, False  # first_draw done, succeeded
-    except BusyBarError as e:
-        if "409" in str(e):
+    except urllib.error.HTTPError as e:
+        if e.code == 409:
             return False, first_draw_flag  # keep first_draw_flag unchanged
         raise
 
@@ -351,7 +402,7 @@ def _pile_rects(pile):
     return _build_coin_frame(buf)
 
 
-def celebrate(bar, amount_str, contact):
+def celebrate(amount_str, contact):
     """Play the full coin celebration on the LED display."""
     global SOUND_UPLOADED
 
@@ -374,9 +425,9 @@ def celebrate(bar, amount_str, contact):
     # Sound plays once at the start of phase A
     try:
         if SOUND_UPLOADED:
-            bar.audio_play(APP, path=APP + "/cha_ching.wav")
+            play_audio(path=APP + "/cha_ching.wav")
         else:
-            bar.audio_play(APP, stock_path="calendar_event_starts")
+            play_audio(stock_path="calendar_event_starts")
     except Exception:
         pass
 
@@ -415,7 +466,7 @@ def celebrate(bar, amount_str, contact):
             time.sleep(0.05)
             continue
 
-        ok, first_draw = _draw_frame(bar, rects, first_draw)
+        ok, first_draw = _draw_frame(rects, first_draw)
         if not ok and first_draw:
             # First draw 409'd: skip entire celebration
             return
@@ -454,7 +505,7 @@ def celebrate(bar, amount_str, contact):
         if len(elements) > 100:
             elements = elements[:100]
 
-        ok, first_draw = _draw_frame(bar, elements, first_draw)
+        ok, first_draw = _draw_frame(elements, first_draw)
         if not ok and first_draw:
             return
         time.sleep(0.05)
@@ -519,15 +570,15 @@ def celebrate(bar, amount_str, contact):
         if len(elements) > 100:
             elements = elements[:-len(sparkles)]
 
-        ok, first_draw = _draw_frame(bar, elements, first_draw)
+        ok, first_draw = _draw_frame(elements, first_draw)
         if not ok and first_draw:
             return
         time.sleep(0.05)
 
     # Release the display
     try:
-        bar.display_clear(APP)
-    except BusyBarError:
+        clear()
+    except OSError:
         pass
 
 # ---------------------------------------------------------------------------
@@ -544,7 +595,7 @@ def token_url():
 
 
 def _mb_get(path, token, params=None, timeout=10):
-    """GET a Moneybird JSON endpoint. Raises SystemExit on 401, BusyBarError on others."""
+    """GET a Moneybird JSON endpoint. Raises SystemExit on 401, RequestError on others."""
     url = MB_BASE + path
     if params:
         url += "?" + urllib.parse.urlencode(params)
@@ -558,9 +609,9 @@ def _mb_get(path, token, params=None, timeout=10):
             print(f"Create a new token at {token_url()}")
             print("Set it as MONEYBIRD_TOKEN in your shell or in a .env file next to app.py.")
             sys.exit(1)
-        raise BusyBarError(f"Moneybird GET {path} -> {e.code}") from e
+        raise RequestError(f"Moneybird GET {path} -> {e.code}") from e
     except OSError as e:  # URLError, socket timeouts, DNS failures
-        raise BusyBarError(f"Moneybird GET {path} failed: {e}") from e
+        raise RequestError(f"Moneybird GET {path} failed: {e}") from e
 
 
 def resolve_admin_id(token):
@@ -625,14 +676,12 @@ def save_state(admin_id, seen_ids):
 
 def main():
     global SOUND_UPLOADED
-    bar = BusyBar(host_from_argv())
-
-    SOUND_UPLOADED = upload_sound(bar)
+    SOUND_UPLOADED = upload_sound()
 
     # --test mode: single celebration, no Moneybird, no state file
     if TEST_MODE:
         print("cha-ching! [test] -- Test Client Ltd. -- " + format_euro("1234.56"))
-        celebrate(bar, "1234.56", "Test Client Ltd.")
+        celebrate("1234.56", "Test Client Ltd.")
         sys.exit(0)
 
     # Resolve token
@@ -661,14 +710,14 @@ def main():
     else:
         seen = set(state.get("seen", []))
 
-    print(f"moneybird-invoice-paid -> {bar.base}  (polling Moneybird every {INTERVAL}s, Ctrl-C to stop)")
+    print(f"moneybird-invoice-paid -> {BASE}  (polling Moneybird every {INTERVAL}s, Ctrl-C to stop)")
 
     try:
         while True:
             # Poll
             try:
                 invoices = fetch_paid_invoices(admin_id, token)
-            except BusyBarError as e:
+            except RequestError as e:
                 print(f"warning: poll failed -- {e}")
                 time.sleep(INTERVAL)
                 continue
@@ -682,8 +731,8 @@ def main():
                 name       = contact_name(inv)
                 print(f"cha-ching! {invoice_no} -- {name} -- {format_euro(amount)}")
                 try:
-                    celebrate(bar, amount, name)
-                except BusyBarError as e:
+                    celebrate(amount, name)
+                except OSError as e:
                     print(f"warning: display error -- {e}")
                 seen.add(inv_id)
                 save_state(admin_id, seen)
@@ -695,7 +744,7 @@ def main():
     except KeyboardInterrupt:
         print("stopped.")
         try:
-            bar.display_clear(APP)
+            clear()
         except Exception:
             pass
         sys.exit(0)

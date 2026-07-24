@@ -32,8 +32,8 @@ Your app folder must contain exactly these files:
 
 Your application's main Python file. Requirements:
 
-- Single Python file (no subdirectories or multi-file packages)
-- Only stdlib imports + `busybar.py` from the emulator repo
+- Single, self-contained Python file (no subdirectories, packages, or helper files)
+- Stdlib imports only — the app talks to the BUSY Bar HTTP API directly (a ~25-line inline helper, see the stub below)
 - App ID in format `yourname.appname` (e.g., `maxswinkels.clock`)
 - Displays on a 72×16 RGB LED matrix
 - Uses fonts: `tiny`, `small`, `normal`, `condensed`, `bold`, `large`, `extra_large`
@@ -44,19 +44,56 @@ Your application's main Python file. Requirements:
 #!/usr/bin/env python3
 """My app: a brief description in the docstring.
 
-    python3 apps/my-app-slug/app.py [--host 127.0.0.1:8080]
+    python app.py                        # BUSY Bar over USB (always 10.0.4.20)
+    python app.py --host 127.0.0.1:8080  # emulator or a Wi-Fi bar
 """
-from busybar import BusyBar, host_from_argv, run_loop
+import json
+import sys
+import time
+import urllib.error
+import urllib.request
 
 APP = "yourname.myapp"
-bar = BusyBar(host_from_argv())
+
+# --- BUSY Bar HTTP API (stdlib only; docs: http://10.0.4.20/docs) ----------
+
+def _host(default="10.0.4.20"):
+    if "--host" in sys.argv:
+        i = sys.argv.index("--host")
+        if i + 1 < len(sys.argv):
+            return sys.argv[i + 1]
+    return default
+
+BASE = "http://" + _host().replace("http://", "").rstrip("/")
+
+def draw(elements, **extra):
+    body = {"application_name": APP, "elements": elements, **extra}
+    req = urllib.request.Request(BASE + "/api/display/draw",
+                                 data=json.dumps(body).encode(), method="POST",
+                                 headers={"Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=5):
+        pass
+
+def text(txt, x=0, y=0, font="normal", color="0xFFFFFFFF", **kw):
+    return {"type": "text", "text": str(txt), "x": x, "y": y, "font": font, "color": color, **kw}
+
+# --- app -------------------------------------------------------------------
 
 def tick():
-    # Your app logic here
-    pass
+    try:
+        draw([text("HELLO", x=36, y=8, font="large", align="center")])
+    except urllib.error.HTTPError as e:
+        if e.code != 409:  # 409 = a higher-priority app owns the display
+            raise
 
 if __name__ == "__main__":
-    run_loop(tick, interval=1.0)
+    print(f"myapp → {BASE}  (Ctrl-C to stop)")
+    try:
+        while True:
+            tick()
+            time.sleep(1.0)
+    except KeyboardInterrupt:
+        print("\nstopped.")
 ```
 
 ### `manifest.yaml` (required)
@@ -107,7 +144,7 @@ Before opening a pull request, verify:
 - ✓ `manifest.yaml` is valid YAML with all required fields
 - ✓ `preview.png` or `preview.gif` exists (720×160)
 - ✓ App respects the 72×16 display size
-- ✓ All imports are stdlib or `busybar.py`
+- ✓ All imports are stdlib (single self-contained file)
 - ✓ Code is your own or properly licensed (MIT preferred)
 
 ## Step 5: Open a pull request
