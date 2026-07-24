@@ -12,7 +12,7 @@ import time
 import urllib.error
 import urllib.request
 
-APP = "demo.fire"
+APP = "pixel-fire"
 W, H = 72, 16
 
 # ---------------------------------------------------------------------------

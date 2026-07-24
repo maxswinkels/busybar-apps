@@ -68,7 +68,7 @@ def _load_dotenv():
 
 _load_dotenv()
 
-APP = "maxswinkels.moneybird"
+APP = "moneybird-invoice-paid"
 W, H = 72, 16
 
 # ---------------------------------------------------------------------------

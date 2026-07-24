@@ -11,7 +11,7 @@ import time
 import urllib.error
 import urllib.request
 
-APP = "maxswinkels.nyan"
+APP = "nyan-cat"
 W, H = 72, 16
 
 # ---------------------------------------------------------------------------

@@ -11,7 +11,7 @@ import time
 import urllib.error
 import urllib.request
 
-APP = "demo.sysmon"
+APP = "mac-monitor"
 
 # ---------------------------------------------------------------------------
 # BUSY Bar HTTP API — self-contained, stdlib only.

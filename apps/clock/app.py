@@ -10,7 +10,7 @@ import time
 import urllib.error
 import urllib.request
 
-APP = "demo.clock"
+APP = "clock"
 
 # ---------------------------------------------------------------------------
 # BUSY Bar HTTP API — self-contained, stdlib only.
