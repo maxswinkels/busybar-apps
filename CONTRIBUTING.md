@@ -61,7 +61,7 @@ if __name__ == "__main__":
 
 ### `manifest.yaml` (required)
 
-Metadata about your app. All fields are required:
+Metadata about your app. All fields are required unless marked optional:
 
 ```yaml
 name: My App Name
@@ -72,6 +72,7 @@ tags:
   - effect
   - info
 preview: ./preview.png
+repo: https://github.com/github_username/my-app  # optional
 ```
 
 **Field constraints:**
@@ -80,6 +81,7 @@ preview: ./preview.png
 - `description`: 1–200 characters, plain text
 - `tags`: Array of lowercase tags (1–5 recommended); common tags are `clock`, `weather`, `info`, `effect`, `animation`, `game`, `monitor`
 - `preview`: Path to preview image (relative to app folder)
+- `repo` (optional): Full URL to your own GitHub repository for this app. When set, the app page links here instead of to the monorepo folder.
 
 ### `preview.png` or `preview.gif` (required)
 

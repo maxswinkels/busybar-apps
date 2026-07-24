@@ -10,6 +10,7 @@ const apps = defineCollection({
     description: z.string().min(1).max(200),
     tags: z.array(z.string()).default([]),
     preview: image(),
+    repo: z.string().url().optional(),
   }),
 });
 

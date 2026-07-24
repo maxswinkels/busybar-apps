@@ -18,9 +18,12 @@ interface Props {
 }
 
 const { app } = Astro.props;
-const { name, author, description, tags, preview } = app.data;
+const { name, author, description, tags, preview, repo } = app.data;
 const slug = app.id.split('/')[0];
 const baseUrl = import.meta.env.BASE_URL;
+
+// Link to the author's own repo when provided, otherwise the monorepo folder.
+const githubUrl = repo ?? `https://github.com/maxswinkels/busybar-apps/tree/main/apps/${slug}`;
 
 // Read the app.py source code
 const appPyPath = path.join(
@@ -86,8 +89,8 @@ const appSource = await readFile(appPyPath, 'utf-8');
       </section>
 
       <section class="section">
-        <a href={`https://github.com/maxswinkels/busybar-apps/tree/main/apps/${slug}`} target="_blank" class="view-github">
-          View source on GitHub →
+        <a href={githubUrl} target="_blank" class="view-github">
+          {repo ? 'View project on GitHub →' : 'View source on GitHub →'}
         </a>
       </section>
 
