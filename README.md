@@ -32,7 +32,7 @@
 ## Why
 
 - **Share working 72×16 apps.** The community gallery is a single place to browse and grab complete, tested applications.
-- **Every app is one self-contained file that drives the bar directly.** Stdlib-only Python talking straight to the BUSY Bar HTTP API — over USB the bar is always at `10.0.4.20`, so `python app.py` just works. The same file runs unchanged against the emulator (`--host 127.0.0.1:8080`).
+- **Every app is one self-contained file that drives the bar directly.** Self-contained Python talking straight to the BUSY Bar HTTP API; over USB the bar is always at `10.0.4.20`, so `python app.py` just works. The same file runs unchanged against the emulator (`--host 127.0.0.1:8080`).
 - **Pull request CI validates every submission.** The site's build checks your manifest schema, so there are no surprises when your PR lands.
 
 ## Browse apps

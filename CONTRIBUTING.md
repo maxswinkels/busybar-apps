@@ -39,12 +39,12 @@ Your application's main Python file. Requirements:
 - Uses fonts: `tiny`, `small`, `normal`, `condensed`, `bold`, `large`, `extra_large`
 - Uses colors in `0xRRGGBBAA` format (alpha channel required)
 
-**Dependencies are allowed.** You don't have to rewrite an existing app to submit it. Stdlib-only apps are preferred — they get the "zero-install" badge in the gallery (grab one file and run it, no setup). But if your app is built on a library, just add a `requirements.txt` (see below). Pre-approved:
+**Dependencies are allowed.** You don't have to rewrite an existing app to submit it. Stdlib-only apps are preferred: they get the "zero-install" badge in the gallery (grab one file and run it, no setup). But if your app is built on a library, just add a `requirements.txt` (see below). Pre-approved:
 
-- [`busylib`](https://pypi.org/project/busylib/) — Flipper's official Python client for the BUSY Bar
+- [`busylib`](https://pypi.org/project/busylib/): Flipper's official Python client for the BUSY Bar
 - [`requests`](https://pypi.org/project/requests/)
 
-Other packages are reviewed case-by-case — briefly explain in your PR why the app needs them.
+Other packages are reviewed case-by-case; briefly explain in your PR why the app needs them.
 
 **Example stub (zero-install, stdlib only):**
 ```python
@@ -151,7 +151,7 @@ A visual preview of your app in action.
 - PNG or GIF
 - Dimensions: 720×160 pixels (that's 72×16 LEDs × 10 pixels scale)
 - Shows your app running on the BUSY Bar's LED display
-- Must be actual emulator or hardware output — mocked-up or AI-generated previews are rejected (they hide layout bugs the real display would show)
+- Must be actual emulator or hardware output. Mocked-up or AI-generated previews are rejected (they hide layout bugs the real display would show)
 
 **How to generate:**
 1. Run your app against the [BUSY Bar Emulator](https://github.com/maxswinkels/busybar-emulator)
@@ -161,7 +161,7 @@ A visual preview of your app in action.
 
 ### `requirements.txt` (optional)
 
-Only for apps with dependencies — standard pip format, one package per line (e.g. `busylib>=1.0`). Leave it out entirely for stdlib-only apps; its absence is what earns the zero-install badge. Users install once with `pip install -r requirements.txt`; the [emulator](https://github.com/maxswinkels/busybar-emulator)'s Apps tab creates a virtualenv from it automatically.
+Only for apps with dependencies: standard pip format, one package per line (e.g. `busylib>=1.0`). Leave it out entirely for stdlib-only apps; its absence is what earns the zero-install badge. Users install once with `pip install -r requirements.txt`; the [emulator](https://github.com/maxswinkels/busybar-emulator)'s Apps tab creates a virtualenv from it automatically.
 
 ## Step 4: Test your submission
 
@@ -210,7 +210,7 @@ Fix any errors and push again; the PR updates automatically.
 ## Tips
 
 - **Keep it simple:** A single focused app is better than a complex, feature-heavy one
-- **Prefer zero-install:** if stdlib is enough, skip `requirements.txt` — one-file apps are the easiest for others to grab
+- **Prefer zero-install:** if stdlib is enough, skip `requirements.txt`; one-file apps are the easiest for others to grab
 - **Document in the docstring:** The first line of your `app.py` docstring appears in app descriptions
 - **Test visually:** Use the emulator to preview your app on the LED grid before submitting
 - **Color your preview:** Make sure your preview PNG actually represents what your app displays
