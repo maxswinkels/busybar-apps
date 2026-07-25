@@ -1,0 +1,10 @@
+name: BusyBar-Custom-Scroll
+author: daninsc
+description: Continuous scrolling ticker with network-synced date/time, weather, moon phase, NOAA tides, and season-aware sports scores. City, tide station, and teams are configurable via config.json.
+tags:
+  - info
+  - clock
+  - weather
+  - monitor
+preview: ./preview.gif
+repo: https://github.com/daninsc/BusyBar-Custom-Scroll
