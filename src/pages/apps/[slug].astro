@@ -33,6 +33,17 @@ const appPyPath = path.join(
   'app.py'
 );
 const appSource = await readFile(appPyPath, 'utf-8');
+
+// Apps with a requirements.txt need a pip install; everything else is zero-install.
+let deps: string[] = [];
+try {
+  const reqs = await readFile(path.join(process.cwd(), 'apps', slug, 'requirements.txt'), 'utf-8');
+  deps = reqs
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith('#'))
+    .map((line) => line.split(/[=<>!~[;\s]/)[0]);
+} catch {}
 ---
 
 <Layout title={`${name} · BUSY Bar Apps`}>
@@ -54,23 +65,38 @@ const appSource = await readFile(appPyPath, 'utf-8');
 
       <p class="app-description">{description}</p>
 
-      {tags.length > 0 && (
-        <div class="app-tags">
-          {tags.map(tag => (
-            <span class="app-tag">{tag}</span>
-          ))}
-        </div>
-      )}
+      <div class="app-tags">
+        {deps.length === 0
+          ? <span class="app-tag app-tag--zero">zero-install</span>
+          : <span class="app-tag app-tag--deps">pip: {deps.join(', ')}</span>}
+        {tags.map(tag => (
+          <span class="app-tag">{tag}</span>
+        ))}
+      </div>
 
       <section class="section">
         <h2>How to run</h2>
-        <p>
-          This app is a single Python file that talks directly to the BUSY Bar HTTP API —
-          no libraries, no setup. Connect your bar via USB and run:
-        </p>
-        <div class="code-snippet">
-          <pre><code>python app.py</code></pre>
-        </div>
+        {deps.length === 0 ? (
+          <>
+            <p>
+              This app is a single Python file that talks directly to the BUSY Bar HTTP API —
+              no libraries, no setup. Connect your bar via USB and run:
+            </p>
+            <div class="code-snippet">
+              <pre><code>python app.py</code></pre>
+            </div>
+          </>
+        ) : (
+          <>
+            <p>
+              This app depends on <code>{deps.join(', ')}</code> — grab the app folder
+              from GitHub, install once, then run:
+            </p>
+            <div class="code-snippet">
+              <pre><code>pip install -r requirements.txt&#10;python app.py</code></pre>
+            </div>
+          </>
+        )}
         <p>
           Over USB the bar is always at <code>10.0.4.20</code>. On Wi-Fi, pass the bar's IP
           with <code>--host &lt;address&gt;</code>.
@@ -197,6 +223,17 @@ const appSource = await readFile(appPyPath, 'utf-8');
     color: var(--color-text-secondary);
     padding: 6px 12px;
     border-radius: var(--radius-sm);
+  }
+
+  .app-tag--zero {
+    background: #e9f7ef;
+    color: #1a7f37;
+  }
+
+  .app-tag--deps {
+    background: #edf2fd;
+    color: #3556c4;
+    font-family: var(--font-mono);
   }
 
   .section {

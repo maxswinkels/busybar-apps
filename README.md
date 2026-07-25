@@ -47,9 +47,10 @@ Visit the [live gallery](https://maxswinkels.github.io/busybar-apps/) to browse 
 
 1. **Fork** this repository
 2. **Create** `apps/<your-slug>/` with:
-   - `app.py`: your app (a single self-contained file, stdlib only)
+   - `app.py`: your app (self-contained; stdlib-only preferred, but existing apps built on e.g. `busylib` are welcome as-is)
    - `manifest.yaml`: metadata
    - `preview.png` or `preview.gif`: 720×160 screenshot
+   - `requirements.txt`: only if your app has dependencies
 3. **Open a pull request** (use the checklist in the PR template)
 4. **CI validates** your manifest schema; fix any errors and push again
 

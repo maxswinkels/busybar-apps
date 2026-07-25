@@ -26,20 +26,27 @@ mkdir apps/your-app-slug
 
 ## Step 3: Add your files
 
-Your app folder must contain exactly these files:
+Your app folder must contain these files:
 
 ### `app.py` (required)
 
 Your application's main Python file. Requirements:
 
-- Single, self-contained Python file (no subdirectories, packages, or helper files)
-- Stdlib imports only — the app talks to the BUSY Bar HTTP API directly (a ~25-line inline helper, see the stub below)
+- One Python entrypoint, self-contained in your app folder (no shared config or helper files outside it)
+- Accepts `--host <ip[:port]>` and defaults to `10.0.4.20` (USB), so the same file runs unchanged against a USB bar, a Wi-Fi bar, or the emulator
 - App ID in format `yourname.appname` (e.g., `maxswinkels.clock`)
 - Displays on a 72×16 RGB LED matrix
 - Uses fonts: `tiny`, `small`, `normal`, `condensed`, `bold`, `large`, `extra_large`
 - Uses colors in `0xRRGGBBAA` format (alpha channel required)
 
-**Example stub:**
+**Dependencies are allowed.** You don't have to rewrite an existing app to submit it. Stdlib-only apps are preferred — they get the "zero-install" badge in the gallery (grab one file and run it, no setup). But if your app is built on a library, just add a `requirements.txt` (see below). Pre-approved:
+
+- [`busylib`](https://pypi.org/project/busylib/) — Flipper's official Python client for the BUSY Bar
+- [`requests`](https://pypi.org/project/requests/)
+
+Other packages are reviewed case-by-case — briefly explain in your PR why the app needs them.
+
+**Example stub (zero-install, stdlib only):**
 ```python
 #!/usr/bin/env python3
 """My app: a brief description in the docstring.
@@ -96,6 +103,22 @@ if __name__ == "__main__":
         print("\nstopped.")
 ```
 
+**Using `busylib` instead:** keep the same `--host` convention and add a `requirements.txt`:
+
+```python
+#!/usr/bin/env python3
+"""My app: a brief description in the docstring."""
+import argparse
+
+from busylib import BusyBar
+
+p = argparse.ArgumentParser()
+p.add_argument("--host", default="10.0.4.20")  # USB default; emulator: --host 127.0.0.1:8080
+args = p.parse_args()
+
+bb = BusyBar(args.host)
+```
+
 ### `manifest.yaml` (required)
 
 Metadata about your app. All fields are required unless marked optional:
@@ -128,12 +151,17 @@ A visual preview of your app in action.
 - PNG or GIF
 - Dimensions: 720×160 pixels (that's 72×16 LEDs × 10 pixels scale)
 - Shows your app running on the BUSY Bar's LED display
+- Must be actual emulator or hardware output — mocked-up or AI-generated previews are rejected (they hide layout bugs the real display would show)
 
 **How to generate:**
 1. Run your app against the [BUSY Bar Emulator](https://github.com/maxswinkels/busybar-emulator)
 2. Screenshot or screen-record the LED display area
 3. Scale it up (or down) to 720×160 pixels
 4. Save as `preview.png` or `preview.gif` in your app folder
+
+### `requirements.txt` (optional)
+
+Only for apps with dependencies — standard pip format, one package per line (e.g. `busylib>=1.0`). Leave it out entirely for stdlib-only apps; its absence is what earns the zero-install badge. Users install once with `pip install -r requirements.txt`; the [emulator](https://github.com/maxswinkels/busybar-emulator)'s Apps tab creates a virtualenv from it automatically.
 
 ## Step 4: Test your submission
 
@@ -142,9 +170,9 @@ Before opening a pull request, verify:
 - ✓ Folder is in `apps/<your-slug>/`
 - ✓ `app.py` exists and runs: `python app.py --host 127.0.0.1:8080`
 - ✓ `manifest.yaml` is valid YAML with all required fields
-- ✓ `preview.png` or `preview.gif` exists (720×160)
+- ✓ `preview.png` or `preview.gif` exists (720×160) and is real emulator/hardware output
 - ✓ App respects the 72×16 display size
-- ✓ All imports are stdlib (single self-contained file)
+- ✓ Dependencies (if any) are listed in `requirements.txt`, and the app runs in a fresh venv: `python -m venv .venv && .venv/bin/pip install -r requirements.txt && .venv/bin/python app.py --host 127.0.0.1:8080`
 - ✓ Code is your own or properly licensed (MIT preferred)
 
 ## Step 5: Open a pull request
@@ -163,7 +191,8 @@ Then go to GitHub and open a pull request. Use this checklist in your PR descrip
 - [ ] Folder structure is correct (`apps/<slug>/`)
 - [ ] `manifest.yaml` has all required fields
 - [ ] `app.py` tested against emulator or real hardware
-- [ ] `preview.png`/`.gif` included (720×160)
+- [ ] `preview.png`/`.gif` included (720×160, real emulator/hardware output)
+- [ ] Dependencies (if any) listed in `requirements.txt`
 - [ ] Code is my own or MIT-licensed
 - [ ] Folder name (slug) follows kebab-case rules
 ```
@@ -181,6 +210,7 @@ Fix any errors and push again; the PR updates automatically.
 ## Tips
 
 - **Keep it simple:** A single focused app is better than a complex, feature-heavy one
+- **Prefer zero-install:** if stdlib is enough, skip `requirements.txt` — one-file apps are the easiest for others to grab
 - **Document in the docstring:** The first line of your `app.py` docstring appears in app descriptions
 - **Test visually:** Use the emulator to preview your app on the LED grid before submitting
 - **Color your preview:** Make sure your preview PNG actually represents what your app displays
