@@ -1,0 +1,7 @@
+name: GitHub Graph
+author: maxswinkels
+description: Your GitHub contribution graph on the bar. Username in a 7px pixel font above 72 weeks of history, one pixel per day. Long names scroll, and there are green, orange, and blue themes.
+tags:
+  - info
+  - monitor
+preview: ./preview.gif
