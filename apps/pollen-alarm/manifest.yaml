@@ -1,0 +1,7 @@
+name: Pollen Alarm
+author: maxswinkels
+description: Hay fever alarm for Europe. Quiet while pollen is low, then the worst species with a 24 hour intensity timeline, a marker on the announced hour and drifting pollen specks. Data from Open-Meteo.
+tags:
+  - weather
+  - info
+preview: ./preview.gif
