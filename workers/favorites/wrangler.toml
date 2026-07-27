@@ -1,0 +1,7 @@
+name = "busybar-favorites"
+main = "src/index.js"
+compatibility_date = "2026-07-01"
+
+[[kv_namespaces]]
+binding = "FAVORITES"
+id = "2dcff2ec416c471eb713ca17ba41d1f9"

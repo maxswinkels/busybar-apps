@@ -2,6 +2,7 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import Layout from '../../layouts/Layout.astro';
+import FavoriteButton from '../../components/FavoriteButton.astro';
 import { getCollection, getEntryBySlug } from 'astro:content';
 import { Code } from 'astro:components';
 
@@ -57,7 +58,10 @@ try {
       </div>
 
       <div class="app-header">
-        <h1>{name}</h1>
+        <div class="app-header-row">
+          <h1>{name}</h1>
+          <FavoriteButton slug={slug} name={name} />
+        </div>
         <p class="app-author">
           by <a href={`https://github.com/${author}`} target="_blank">@{author}</a>
         </p>
@@ -147,6 +151,11 @@ try {
   }
 </script>
 
+<script>
+  import { initFavorites } from '../../scripts/favorites.js';
+  initFavorites();
+</script>
+
 <style>
   .app-detail {
     max-width: 900px;
@@ -187,8 +196,15 @@ try {
     margin-bottom: 24px;
   }
 
-  .app-header h1 {
-    margin: 0 0 8px 0;
+  .app-header-row {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-sm);
+    margin-bottom: 8px;
+  }
+
+  .app-header-row h1 {
+    margin: 0;
     font-size: 32px;
   }
 
