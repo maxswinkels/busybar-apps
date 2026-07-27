@@ -1,0 +1,8 @@
+name: Audio Visualizer
+author: maxswinkels
+description: "Live microphone spectrum on the LEDs: five render styles (bars, mirror, segments, dots, wave) and colour themes."
+tags:
+  - audio
+  - effect
+  - music
+preview: ./preview.gif
