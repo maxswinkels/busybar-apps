@@ -1,0 +1,7 @@
+name: ISS Alert
+author: maxswinkels
+description: Stays quiet until the space station passes near you. Then a pseudo 3D ISS slides across a twinkling starfield, hangs overhead with live distance, and drifts off the far edge as it leaves.
+tags:
+  - info
+  - animation
+preview: ./preview.gif
