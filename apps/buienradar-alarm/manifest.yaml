@@ -1,0 +1,7 @@
+name: Buienradar Alarm
+author: maxswinkels
+description: Dutch rain alarm that takes the screen only when rain is coming. Shows minutes until rain or until dry, plus a 2-hour Buienradar intensity timeline colored from drizzle to downpour.
+tags:
+  - weather
+  - info
+preview: ./preview.gif
