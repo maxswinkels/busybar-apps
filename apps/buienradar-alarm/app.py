@@ -12,7 +12,7 @@ import urllib.parse
 import urllib.request
 from datetime import datetime
 
-APP = "maxswinkels.buienradar-alarm"
+APP = "buienradar-alarm"
 BUIENRADAR_URL = "https://gpsgadget.buienradar.nl/data/raintext"
 
 

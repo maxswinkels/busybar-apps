@@ -34,7 +34,7 @@ Your application's main Python file. Requirements:
 
 - One Python entrypoint, self-contained in your app folder (no shared config or helper files outside it)
 - Accepts `--host <ip[:port]>` and defaults to `10.0.4.20` (USB), so the same file runs unchanged against a USB bar, a Wi-Fi bar, or the emulator
-- App ID in format `yourname.appname` (e.g., `maxswinkels.clock`)
+- App ID (`application_name`) is simply your app's name, matching the folder slug (e.g., `clock`)
 - Displays on a 72×16 RGB LED matrix
 - Uses fonts: `tiny`, `small`, `normal`, `condensed`, `bold`, `large`, `extra_large`
 - Uses colors in `0xRRGGBBAA` format (alpha channel required)
@@ -60,7 +60,7 @@ import time
 import urllib.error
 import urllib.request
 
-APP = "yourname.myapp"
+APP = "my-app"
 
 # --- BUSY Bar HTTP API (stdlib only; docs: http://10.0.4.20/docs) ----------
 
@@ -214,7 +214,7 @@ Fix any errors and push again; the PR updates automatically.
 - **Document in the docstring:** The first line of your `app.py` docstring appears in app descriptions
 - **Test visually:** Use the emulator to preview your app on the LED grid before submitting
 - **Color your preview:** Make sure your preview PNG actually represents what your app displays
-- **Follow conventions:** Use the APP ID format `yourname.appname` to avoid conflicts
+- **Follow conventions:** use your folder slug as the APP ID; slugs are unique in the gallery, so it cannot clash
 
 ## Questions?
 
