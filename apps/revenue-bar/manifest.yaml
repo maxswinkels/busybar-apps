@@ -1,0 +1,8 @@
+name: Revenue Bar
+author: alexharston
+description: Stripe + Paddle net revenue on your bar. Day, week, month and year to date with trend sparklines and same-point deltas.
+tags:
+  - business
+  - monitor
+  - info
+preview: ./preview.gif
