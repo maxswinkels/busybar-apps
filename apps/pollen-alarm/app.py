@@ -308,7 +308,9 @@ def _build_elements(headline, headline_level, marker_idx, slots, tick=0):
         "type": "text",
         "text": headline,
         "x": 41,
-        "y": 0,
+        # y=-1: on the device the small font renders ~2px low, so this lands the
+        # headline ink on rows 1-5, vertically centered against the 7px flower icon.
+        "y": -1,
         "font": "small",
         "color": COLOR_WHITE,
         "align": "top_mid",

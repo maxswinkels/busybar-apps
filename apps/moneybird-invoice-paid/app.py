@@ -467,14 +467,16 @@ def celebrate(amount_str, contact):
 
         total_w = 8 + bold_width(s)  # 6 sprite + 2 gap
         ex = (72 - total_w) // 2
-        ey = 3
+        # The bold amount (y=0) sits ~1px lower than the euro sprite on the bar,
+        # so drawing the sprite at ey=2 lines the two up.
+        ey = 2
 
         buf = _blank()
         _pile_px(buf, pile)
         _euro_px(buf, ex, ey)
 
         text_els = [
-            text(s, x=ex + 8, y=2, font="bold", align="top_left",
+            text(s, x=ex + 8, y=0, font="bold", align="top_left",
                  color=amount_color, id="amount"),
         ]
 
@@ -487,7 +489,9 @@ def celebrate(amount_str, contact):
     final_s = format_amount("%.2f" % target)
     total_w = 8 + bold_width(final_s)
     ex = (72 - total_w) // 2
-    ey = 3
+    # The bold amount (y=0) sits ~1px lower than the euro sprite on the bar,
+    # so drawing the sprite at ey=2 lines the two up.
+    ey = 2
 
     name = display_name(contact)
     name_w = tiny_width(name)
@@ -524,7 +528,7 @@ def celebrate(amount_str, contact):
             _px(buf, random.randint(0, W - 1), random.randint(0, H - 1), HIGHLIGHT)
 
         text_els = [
-            text(final_s, x=ex + 8, y=2, font="bold", align="top_left",
+            text(final_s, x=ex + 8, y=0, font="bold", align="top_left",
                  color="#FFD700FF", id="amount"),
             # Stable id: the renderer keys scroll state on element id, so fresh
             # ids every frame would reset the contact scroll each redraw.

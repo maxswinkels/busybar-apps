@@ -29,14 +29,14 @@ STATE_HOLDING = "HOLDING"
 # Colors: warm cream palette
 BRIGHT = "#F0F0DCFF"
 DIM = "#6C6C63FF"
-SEP = "#262623FF"
 LED_COLOR = "#F0F0DCFF"
 
-# Layout: the small font's ink is 5px tall and sits at the top of its 7px box, so
-# place the two lines at y=1 and y=10 for a balanced 1px margin top and bottom.
-Y_LINE1 = 1
-Y_SEP = 8
-Y_LINE2 = 10
+# Layout for the 5px-tall small font, two lines, no separator. The small-font ink
+# sits ~2px lower than its nominal y on the bar, so line 1 at y=0 lands on ink rows
+# 2-6 and line 2 at y=9 on rows 11-15: the lines sit at top and bottom with a roomy
+# ~4px gap in the middle.
+Y_LINE1 = 0
+Y_LINE2 = 9
 # The device font carries a 1px right-side bearing (advance = ink + 1). Anchoring
 # right-aligned text one column past the 72px width lands the ink flush to the
 # right edge, matching the flush left column.
@@ -366,12 +366,6 @@ def _build_frame(plane, route, tick, mode):
             "id": "type", "type": "text", "text": plane["type"], "x": X_RIGHT, "y": Y_LINE1,
             "font": "small", "color": DIM, "align": "top_right",
         })
-
-    # Separator line
-    elements.append({
-        "id": "sep", "type": "rectangle", "x": 0, "y": Y_SEP, "width": 72, "height": 1,
-        "border_width": 0, "fill": "solid", "fill_colors": [SEP],
-    })
 
     # Line 2: with a route, show it on the left and flap altitude<->speed on the
     # right; without a route, show altitude and speed side by side.

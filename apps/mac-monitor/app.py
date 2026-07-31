@@ -188,18 +188,20 @@ def tick():
         elements.append(text(label, x=0, y=row_y, font="tiny", color="#FFFFFFFF",
                              id=f"{key}_label"))
 
-        # Bar outline (no fill, subtle border)
+        # Bar outline (no fill, subtle border). Positioned with ≥1px clearance on
+        # both sides: the widest label ("MEM", 16px, ends x=15) and the widest
+        # right-aligned value ("1023K", left edge x=50).
         elements.append(rectangle(
-            x=15, y=row_y, width=41, height=5,
+            x=17, y=row_y, width=31, height=5,
             border_width=1, border_color="#505050FF",
             id=f"{key}_bar_outline",
         ))
 
         # Bar fill (solid, no border)
-        fill_w = round(39 * frac)
+        fill_w = round(29 * frac)
         if fill_w >= 1:
             elements.append(rectangle(
-                x=16, y=row_y + 1, width=fill_w, height=3,
+                x=18, y=row_y + 1, width=fill_w, height=3,
                 border_width=0, fill="solid", fill_colors=[col],
                 id=f"{key}_bar_fill",
             ))

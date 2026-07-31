@@ -179,7 +179,9 @@ def _build_elements(headline, series):
         "type": "text",
         "text": headline,
         "x": 41,
-        "y": 0,
+        # y=-1: on the device the small font renders ~2px low, so this lands the
+        # headline ink on rows 0-4, vertically aligned with the 6px droplet icon.
+        "y": -1,
         "font": "small",
         "color": "#EAF6FFFF",
         "align": "top_mid",

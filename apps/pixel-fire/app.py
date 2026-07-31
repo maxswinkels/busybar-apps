@@ -250,7 +250,7 @@ _t = 0.0
 
 def _tick_plasma():
     global _t
-    _t += 0.12
+    _t += 0.06  # phase step per frame; lower = slower, calmer plasma drift
     n = len(PLASMA_PALETTE)
 
     buf = [[0] * W for _ in range(H)]
