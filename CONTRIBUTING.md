@@ -37,7 +37,7 @@ Your application's main Python file. Requirements:
 - App ID (`application_name`) is simply your app's name, matching the folder slug (e.g., `clock`)
 - Displays on a 72×16 RGB LED matrix
 - Uses fonts: `tiny`, `small`, `normal`, `condensed`, `bold`, `large`, `extra_large`
-- Uses colors in `0xRRGGBBAA` format (alpha channel required)
+- Uses colors in `#RRGGBBAA` format (alpha channel required)
 
 **Dependencies are allowed.** You don't have to rewrite an existing app to submit it. Stdlib-only apps are preferred: they get the "zero-install" badge in the gallery (grab one file and run it, no setup). But if your app is built on a library, just add a `requirements.txt` (see below). Pre-approved:
 
@@ -81,8 +81,9 @@ def draw(elements, **extra):
     with urllib.request.urlopen(req, timeout=5):
         pass
 
-def text(txt, x=0, y=0, font="normal", color="0xFFFFFFFF", **kw):
-    return {"type": "text", "text": str(txt), "x": x, "y": y, "font": font, "color": color, **kw}
+def text(txt, x=0, y=0, font="normal", color="#FFFFFFFF", **kw):
+    # Every element needs an id, and colors are #RRGGBBAA (API 25.0.0+).
+    return {"id": "0", "type": "text", "text": str(txt), "x": x, "y": y, "font": font, "color": color, **kw}
 
 # --- app -------------------------------------------------------------------
 

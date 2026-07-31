@@ -35,8 +35,9 @@ def draw(elements, **extra):
     with urllib.request.urlopen(req, timeout=5):
         pass
 
-def text(txt, x=0, y=0, font="normal", color="0xFFFFFFFF", **kw):
-    return {"type": "text", "text": str(txt), "x": x, "y": y, "font": font, "color": color, **kw}
+def text(txt, x=0, y=0, font="normal", color="#FFFFFFFF", **kw):
+    # Every element needs an id, and colors are #RRGGBBAA (API 25.0.0+).
+    return {"id": "0", "type": "text", "text": str(txt), "x": x, "y": y, "font": font, "color": color, **kw}
 
 # ---------------------------------------------------------------------------
 # App

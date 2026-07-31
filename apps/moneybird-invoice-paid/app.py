@@ -114,7 +114,7 @@ def upload_asset(file, data):
     q = urllib.parse.urlencode({"application_name": APP, "file": file})
     api("POST", "/api/assets/upload?" + q, raw=data)
 
-def text(txt, x=0, y=0, font="normal", color="0xFFFFFFFF", **kw):
+def text(txt, x=0, y=0, font="normal", color="#FFFFFFFF", **kw):
     return {"type": "text", "text": str(txt), "x": x, "y": y, "font": font, "color": color, **kw}
 
 def rectangle(x, y, width, height, **kw):
@@ -223,7 +223,8 @@ def _euro_rects(ex, ey):
                     width=x - run_start, height=1,
                     border_width=0,
                     fill="solid",
-                    fill_colors=["0xFFD700FF"],
+                    fill_colors=["#FFD700FF"],
+                    id=f"euro{len(rects)}",
                 ))
             else:
                 x += 1
@@ -253,6 +254,7 @@ def _buf_to_rects(buf, palette):
                 border_width=0,
                 fill="solid",
                 fill_colors=[palette[idx]],
+                id=f"pile{len(rects)}",
             ))
     return rects
 
@@ -283,22 +285,26 @@ def _build_coin_frame(buf):
 
 COIN_PALETTE = [
     None,          # 0 transparent
-    "0xB8860BFF",  # 1 dark gold rim
-    "0xFFD700FF",  # 2 gold
-    "0xFFF8C8FF",  # 3 highlight
+    "#B8860BFF",  # 1 dark gold rim
+    "#FFD700FF",  # 2 gold
+    "#FFF8C8FF",  # 3 highlight
 ]
 
-def _coin_rects(cx, cy):
+def _coin_rects(cx, cy, i):
     """One airborne coin as 2 layered elements: a rim-bordered gold rect plus a
     highlight pixel. 16 coins cost 32 elements, so the 100-element cap is never
     hit and the rim can't get collapsed away mid-rain. radius is ignored by the
-    emulator (draws square) but rounds the corners on real hardware."""
+    emulator (draws square) but rounds the corners on real hardware. i is the
+    coin's index in the current frame's airborne list, used to give each of
+    its 2 elements a distinct, stable-per-slot id."""
     return [
         rectangle(x=cx, y=cy, width=5, height=5, radius=2,
-                  border_width=1, border_color="0xB8860BFF",
-                  fill="solid", fill_colors=["0xFFD700FF"]),
+                  border_width=1, border_color="#B8860BFF",
+                  fill="solid", fill_colors=["#FFD700FF"],
+                  id=f"coin{i}"),
         rectangle(x=cx + 1, y=cy + 1, width=1, height=1, border_width=0,
-                  fill="solid", fill_colors=["0xFFF8C8FF"]),
+                  fill="solid", fill_colors=["#FFF8C8FF"],
+                  id=f"coinhi{i}"),
     ]
 
 # ---------------------------------------------------------------------------
@@ -382,7 +388,7 @@ def _draw_frame(elements, first_draw_flag):
     On 409: silent skip. On first frame 409 returns (False, False).
     Re-raises other errors."""
     try:
-        draw(elements, priority=90, led_notification_color="0xFFD700FF")
+        draw(elements, priority=90, led_notification_color="#FFD700FF")
         return True, False  # first_draw done, succeeded
     except urllib.error.HTTPError as e:
         if e.code == 409:
@@ -457,10 +463,10 @@ def celebrate(amount_str, contact):
 
         # pile behind, airborne coins on top as layered rects
         rects = _pile_rects(pile)
-        for coin in coins:
+        for i, coin in enumerate(coins):
             cy = int(coin["y"])
             if cy + 4 >= 0 and cy < H:
-                rects += _coin_rects(coin["x"], cy)
+                rects += _coin_rects(coin["x"], cy, i)
 
         if not rects:
             time.sleep(0.05)
@@ -487,7 +493,7 @@ def celebrate(amount_str, contact):
         t = k / 45.0
         value = target * (1 - (1 - t) ** 3)
         s = format_amount("%.2f" % value)
-        amount_color = "0xFFFFFFFF" if k == 45 else "0xFFD700FF"
+        amount_color = "#FFFFFFFF" if k == 45 else "#FFD700FF"
 
         total_w = 8 + bold_width(s)  # 6 sprite + 2 gap
         ex = (72 - total_w) // 2
@@ -521,7 +527,7 @@ def celebrate(amount_str, contact):
     if name_w <= W:
         c_frames = 60
         contact_el = text(name, x=36, y=16, font="tiny", align="bottom_mid",
-                          color="0xAAAAAAFF", id="contact")
+                          color="#AAAAAAFF", id="contact")
     else:
         # long name: stretch the phase so one full cycle (0.5s start delay +
         # (width + gap)/speed; renderer gap = 9) completes. Base speed 15 px/s,
@@ -530,12 +536,12 @@ def celebrate(amount_str, contact):
         cycle = 0.5 + (name_w + 9) / speed
         c_frames = min(200, int(cycle * 20) + 12)
         contact_el = text(name, x=36, y=16, font="tiny", align="bottom_mid",
-                          color="0xAAAAAAFF", width=72,
+                          color="#AAAAAAFF", width=72,
                           scroll_rate=int(speed * 60), scroll_start_delay=500,
                           id="contact")
 
     for frame in range(c_frames):
-        amount_color = "0xFFD700FF"
+        amount_color = "#FFD700FF"
 
         # drain pile every 3rd frame
         if frame % 3 == 0:
@@ -548,14 +554,15 @@ def celebrate(amount_str, contact):
 
         # 3 random sparkles
         sparkles = []
-        for _ in range(3):
+        for i in range(3):
             sparkles.append(rectangle(
                 x=random.randint(0, W - 1),
                 y=random.randint(0, H - 1),
                 width=1, height=1,
                 border_width=0,
                 fill="solid",
-                fill_colors=["0xFFF8C8FF"],
+                fill_colors=["#FFF8C8FF"],
+                id=f"spark{i}",
             ))
 
         elements = pile_rects + euro_rects + [

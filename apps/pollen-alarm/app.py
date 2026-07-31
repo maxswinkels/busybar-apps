@@ -30,12 +30,12 @@ LEVEL_LAAG   = "laag"
 LEVEL_MIDDEL = "middel"
 LEVEL_HOOG   = "hoog"
 
-COLOR_MIDDEL   = "0xFFC800FF"
-COLOR_HOOG     = "0xFF3C00FF"
-COLOR_BASELINE = "0x2A2A1AFF"
-COLOR_WHITE    = "0xEAF6FFFF"
-COLOR_AMBER    = "0xFFC800FF"
-COLOR_GREEN    = "0x00C800FF"
+COLOR_MIDDEL   = "#FFC800FF"
+COLOR_HOOG     = "#FF3C00FF"
+COLOR_BASELINE = "#2A2A1AFF"
+COLOR_WHITE    = "#EAF6FFFF"
+COLOR_AMBER    = "#FFC800FF"
+COLOR_GREEN    = "#00C800FF"
 
 
 def parse_args():
@@ -262,25 +262,25 @@ def _build_headline(slots):
 # Display building
 # ---------------------------------------------------------------------------
 
-def _rect(x, y, w, h, color):
-    return {"type": "rectangle", "x": x, "y": y, "width": w, "height": h,
+def _rect(el_id, x, y, w, h, color):
+    return {"id": str(el_id), "type": "rectangle", "x": x, "y": y, "width": w, "height": h,
             "border_width": 0, "fill": "solid", "fill_colors": [color]}
 
 
-def _grad(x, y, w, h, top, bottom):
-    return {"type": "rectangle", "x": x, "y": y, "width": w, "height": h,
+def _grad(el_id, x, y, w, h, top, bottom):
+    return {"id": str(el_id), "type": "rectangle", "x": x, "y": y, "width": w, "height": h,
             "border_width": 0, "fill": "gradient_v", "fill_colors": [top, bottom]}
 
 
 # Pollen specks drifting right to left through the free lane (rows 7-8):
 # (start_x, row, step, color). The tick advances them every redraw.
-DRIFT = [(4, 7, 3, "0xC89600FF"), (17, 8, 2, "0x8C6E00FF"), (31, 7, 4, "0x8C6E00FF"),
-         (45, 8, 3, "0xC89600FF"), (58, 7, 2, "0x8C6E00FF"), (68, 8, 5, "0xC89600FF")]
+DRIFT = [(4, 7, 3, "#C89600FF"), (17, 8, 2, "#8C6E00FF"), (31, 7, 4, "#8C6E00FF"),
+         (45, 8, 3, "#C89600FF"), (58, 7, 2, "#8C6E00FF"), (68, 8, 5, "#C89600FF")]
 
 
 def _drift(tick):
-    return [_rect((sx - tick * step) % 72, row, 1, 1, color)
-            for sx, row, step, color in DRIFT]
+    return [_rect(f"drift{i}", (sx - tick * step) % 72, row, 1, 1, color)
+            for i, (sx, row, step, color) in enumerate(DRIFT)]
 
 
 def _build_elements(headline, headline_level, marker_idx, slots, tick=0):
@@ -288,15 +288,15 @@ def _build_elements(headline, headline_level, marker_idx, slots, tick=0):
 
     # Flower icon (7x7): petal ring around a white heart, green stem with a
     # leaf. The petals breathe between amber and bright yellow every redraw.
-    petal = COLOR_AMBER if tick % 2 == 0 else "0xFFE13CFF"
+    petal = COLOR_AMBER if tick % 2 == 0 else "#FFE13CFF"
     elements += [
-        _rect(2, 0, 3, 1, petal),                 # petals top
-        _rect(1, 1, 1, 1, petal),                 # petal left
-        _rect(5, 1, 1, 1, petal),                 # petal right
-        _rect(2, 2, 3, 1, petal),                 # petals bottom
-        _rect(3, 1, 1, 1, COLOR_WHITE),           # heart
-        _rect(3, 3, 1, 4, COLOR_GREEN),           # stem
-        _rect(1, 4, 2, 1, COLOR_GREEN),           # leaf
+        _rect("petal_top", 2, 0, 3, 1, petal),        # petals top
+        _rect("petal_left", 1, 1, 1, 1, petal),       # petal left
+        _rect("petal_right", 5, 1, 1, 1, petal),      # petal right
+        _rect("petal_bottom", 2, 2, 3, 1, petal),     # petals bottom
+        _rect("heart", 3, 1, 1, 1, COLOR_WHITE),      # heart
+        _rect("stem", 3, 3, 1, 4, COLOR_GREEN),       # stem
+        _rect("leaf", 1, 4, 2, 1, COLOR_GREEN),       # leaf
     ]
 
     # Drifting pollen specks in the free lane between text and chart
@@ -304,6 +304,7 @@ def _build_elements(headline, headline_level, marker_idx, slots, tick=0):
 
     # Headline always white; the bars carry the level colors
     elements.append({
+        "id": "headline",
         "type": "text",
         "text": headline,
         "x": 41,
@@ -315,7 +316,7 @@ def _build_elements(headline, headline_level, marker_idx, slots, tick=0):
 
     # Quarter-day ticks in the gap columns so the 24h axis has anchor points
     for tick_slot in (6, 12, 18):
-        elements.append(_rect(tick_slot * 3 - 1, 14, 1, 2, "0x5A5A5AFF"))
+        elements.append(_rect(f"tick{tick_slot}", tick_slot * 3 - 1, 14, 1, 2, "#5A5A5AFF"))
 
     # Timeline: 24 hourly slots, 2px wide bars with 1px gap, max height 7,
     # anchored at bottom (y=9..15), with a vertical gradient for depth and a
@@ -327,22 +328,22 @@ def _build_elements(headline, headline_level, marker_idx, slots, tick=0):
         level = slot["level"]
         if level == LEVEL_LAAG:
             # Dim 1px baseline
-            elements.append(_rect(x, 15, 2, 1, COLOR_BASELINE))
+            elements.append(_rect(f"bar{slot_idx}", x, 15, 2, 1, COLOR_BASELINE))
         else:
             h = max(1, min(7, round(val / 120 * 7)))
             if level == LEVEL_HOOG:
-                top, bottom = "0xFF5A14FF", "0x781400FF"
+                top, bottom = "#FF5A14FF", "#781400FF"
             else:
-                top, bottom = "0xFFD23CFF", "0x785000FF"
-            elements.append(_grad(x, 16 - h, 2, h, top, bottom))
+                top, bottom = "#FFD23CFF", "#785000FF"
+            elements.append(_grad(f"bar{slot_idx}", x, 16 - h, 2, h, top, bottom))
             if h > peak_h:
                 peak_idx, peak_h = slot_idx, h
     if peak_idx is not None and peak_h >= 2:
-        elements.append(_rect(peak_idx * 3, 16 - peak_h, 2, 1, "0xFFF0A0FF"))
+        elements.append(_rect("peak", peak_idx * 3, 16 - peak_h, 2, 1, "#FFF0A0FF"))
 
     # White marker on the bottom row of the bar the headline points at
     if marker_idx is not None and 0 <= marker_idx < 24:
-        elements.append(_rect(marker_idx * 3, 15, 2, 1, COLOR_WHITE))
+        elements.append(_rect("marker", marker_idx * 3, 15, 2, 1, COLOR_WHITE))
 
     return elements
 

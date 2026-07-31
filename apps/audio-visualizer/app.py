@@ -62,7 +62,7 @@ THEME_NAMES = list(THEMES.keys()) + ["rainbow"]
 STYLE_NAMES = ["bars", "mirror", "segments", "dots", "wave"]
 
 # Bright cap that floats on top of each bar at its recent peak.
-PEAK_COLOR = "0xFFFFFFFF"
+PEAK_COLOR = "#FFFFFFFF"
 # Peak caps fall this many pixels per second, then are scaled to the frame rate.
 PEAK_FALL_PER_SEC = 9.0
 
@@ -144,9 +144,9 @@ def compute_band_magnitudes(samples):
 # ---------------------------------------------------------------------------
 
 def _hex(r, g, b, a=1.0):
-    """(r, g, b[, a]) in 0..1 -> '0xRRGGBBAA'."""
+    """(r, g, b[, a]) in 0..1 -> '#RRGGBBAA'."""
     clamp = lambda v: max(0, min(255, int(v * 255 + 0.5)))
-    return "0x%02X%02X%02X%02X" % (clamp(r), clamp(g), clamp(b), clamp(a))
+    return "#%02X%02X%02X%02X" % (clamp(r), clamp(g), clamp(b), clamp(a))
 
 
 def _hsv(h, s, v):
@@ -189,8 +189,9 @@ def _bar_gradient(band_i, h, theme, num_bands):
 # Display
 # ---------------------------------------------------------------------------
 
-def _rect(x, y, w, h, colors, fill="solid"):
+def _rect(el_id, x, y, w, h, colors, fill="solid"):
     return {
+        "id": str(el_id),
         "type": "rectangle",
         "x": x, "y": y, "width": w, "height": h,
         "border_width": 0,
@@ -210,10 +211,10 @@ def _build_bars(heights, peaks, theme):
         if h > 0:
             top_hex, base_hex = _bar_gradient(i, h, theme, n)
             # renderer's gradient_v lerps fill_colors[0] (top row) -> [1] (bottom row)
-            els.append(_rect(x, DISPLAY_H - h, 2, h, [top_hex, base_hex], fill="gradient_v"))
+            els.append(_rect(f"bar{i}", x, DISPLAY_H - h, 2, h, [top_hex, base_hex], fill="gradient_v"))
         ph = int(peaks[i])
         if ph > h and ph > 0:
-            els.append(_rect(x, DISPLAY_H - ph, 2, 1, [PEAK_COLOR]))
+            els.append(_rect(f"peak{i}", x, DISPLAY_H - ph, 2, 1, [PEAK_COLOR]))
     return els
 
 
@@ -228,12 +229,12 @@ def _build_mirror(heights, peaks, theme):
         if half > 0:
             hot = _hex(*_theme_rgb(i, h / DISPLAY_H, theme, n))
             base = _hex(*_theme_rgb(i, 0.0, theme, n))
-            els.append(_rect(x, mid - half, 2, half, [hot, base], fill="gradient_v"))   # top half
-            els.append(_rect(x, mid, 2, half, [base, hot], fill="gradient_v"))           # bottom half
+            els.append(_rect(f"bar{i}t", x, mid - half, 2, half, [hot, base], fill="gradient_v"))   # top half
+            els.append(_rect(f"bar{i}b", x, mid, 2, half, [base, hot], fill="gradient_v"))           # bottom half
         phalf = int(peaks[i]) // 2
         if phalf > half and phalf > 0:
-            els.append(_rect(x, mid - phalf, 2, 1, [PEAK_COLOR]))
-            els.append(_rect(x, mid + phalf - 1, 2, 1, [PEAK_COLOR]))
+            els.append(_rect(f"peak{i}t", x, mid - phalf, 2, 1, [PEAK_COLOR]))
+            els.append(_rect(f"peak{i}b", x, mid + phalf - 1, 2, 1, [PEAK_COLOR]))
     return els
 
 
@@ -265,12 +266,12 @@ def _build_segments(heights, peaks, theme):
             if bh <= 0:
                 continue
             t = 1.0 - (y + bh / 2.0) / DISPLAY_H
-            els.append(_rect(x, y, 2, bh, [_hex(*_theme_rgb(i, t, theme, n))]))
+            els.append(_rect(f"bar{i}_{k}", x, y, 2, bh, [_hex(*_theme_rgb(i, t, theme, n))]))
         peak_slot = int(round(peaks[i] / DISPLAY_H * SEG_SLOTS))
         if peak_slot > lit and peak_slot > 0:
             y, bh = _seg_block(peak_slot - 1)
             if bh > 0:
-                els.append(_rect(x, y, 2, bh, [PEAK_COLOR]))
+                els.append(_rect(f"peak{i}", x, y, 2, bh, [PEAK_COLOR]))
     return els
 
 
@@ -283,10 +284,10 @@ def _build_dots(heights, peaks, theme):
         if h > 0:
             dh = 2
             y = min(DISPLAY_H - dh, DISPLAY_H - h)
-            els.append(_rect(x, y, 2, dh, [_hex(*_theme_rgb(i, h / DISPLAY_H, theme, n))]))
+            els.append(_rect(f"bar{i}", x, y, 2, dh, [_hex(*_theme_rgb(i, h / DISPLAY_H, theme, n))]))
         ph = int(peaks[i])
         if ph > h and ph > 0:
-            els.append(_rect(x, DISPLAY_H - ph, 2, 1, [PEAK_COLOR]))
+            els.append(_rect(f"peak{i}", x, DISPLAY_H - ph, 2, 1, [PEAK_COLOR]))
     return els
 
 
@@ -298,10 +299,10 @@ def _build_wave(heights, peaks, theme):
     for i, h in enumerate(heights):
         x = i * 3
         col = _hex(*_theme_rgb(i, max(1, h) / DISPLAY_H, theme, n))
-        els.append(_rect(x, tops[i], 2, 1, [col]))  # cap at the band top
+        els.append(_rect(f"bar{i}", x, tops[i], 2, 1, [col]))  # cap at the band top
         if i < n - 1:                                 # vertical connector to the next band
             lo, hi = min(tops[i], tops[i + 1]), max(tops[i], tops[i + 1])
-            els.append(_rect(x + 2, lo, 1, hi - lo + 1, [col]))
+            els.append(_rect(f"conn{i}", x + 2, lo, 1, hi - lo + 1, [col]))
     return els
 
 

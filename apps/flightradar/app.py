@@ -27,10 +27,10 @@ STATE_SHOWING = "SHOWING"
 STATE_HOLDING = "HOLDING"
 
 # Colors: warm cream palette
-BRIGHT = "0xF0F0DCFF"
-DIM = "0x6C6C63FF"
-SEP = "0x262623FF"
-LED_COLOR = "0xF0F0DCFF"
+BRIGHT = "#F0F0DCFF"
+DIM = "#6C6C63FF"
+SEP = "#262623FF"
+LED_COLOR = "#F0F0DCFF"
 
 # Layout: the small font's ink is 5px tall and sits at the top of its 7px box, so
 # place the two lines at y=1 and y=10 for a balanced 1px margin top and bottom.
@@ -358,18 +358,18 @@ def _build_frame(plane, route, tick, mode):
 
     # Line 1: callsign/ident on left, aircraft type on right (if available)
     elements.append({
-        "type": "text", "text": ident, "x": 0, "y": Y_LINE1,
+        "id": "callsign", "type": "text", "text": ident, "x": 0, "y": Y_LINE1,
         "font": "small", "color": BRIGHT, "align": "top_left",
     })
     if plane["type"]:
         elements.append({
-            "type": "text", "text": plane["type"], "x": X_RIGHT, "y": Y_LINE1,
+            "id": "type", "type": "text", "text": plane["type"], "x": X_RIGHT, "y": Y_LINE1,
             "font": "small", "color": DIM, "align": "top_right",
         })
 
     # Separator line
     elements.append({
-        "type": "rectangle", "x": 0, "y": Y_SEP, "width": 72, "height": 1,
+        "id": "sep", "type": "rectangle", "x": 0, "y": Y_SEP, "width": 72, "height": 1,
         "border_width": 0, "fill": "solid", "fill_colors": [SEP],
     })
 
@@ -382,11 +382,11 @@ def _build_frame(plane, route, tick, mode):
         left_text = alt_str
         right_text = speed_str
     elements.append({
-        "type": "text", "text": left_text, "x": 0, "y": Y_LINE2,
+        "id": "l2left", "type": "text", "text": left_text, "x": 0, "y": Y_LINE2,
         "font": "small", "color": BRIGHT, "align": "top_left",
     })
     elements.append({
-        "type": "text", "text": right_text, "x": X_RIGHT, "y": Y_LINE2,
+        "id": "l2right", "type": "text", "text": right_text, "x": X_RIGHT, "y": Y_LINE2,
         "font": "small", "color": BRIGHT, "align": "top_right",
     })
 

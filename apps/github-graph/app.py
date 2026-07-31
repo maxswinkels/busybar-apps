@@ -243,10 +243,10 @@ def upload_and_draw(host, png_bytes, scroll_user=None):
 
     # Draw: one full-screen image; name and grid are both baked into the PNG
     # with the embedded pixel font, so every pixel matches on any display.
-    elements = [{"type": "image", "path": "graph.png", "x": 0, "y": 0}]
+    elements = [{"type": "image", "path": "graph.png", "x": 0, "y": 0, "id": "graph"}]
     if scroll_user is not None:
         elements.append({"type": "text", "text": scroll_user, "x": 0, "y": -1,
-                         "font": "normal", "color": "0xFFFFFFFF",
+                         "font": "normal", "color": "#FFFFFFFF",
                          "width": 72, "scroll_rate": 480, "id": "name"})
     payload = json.dumps({
         "application_name": APP,

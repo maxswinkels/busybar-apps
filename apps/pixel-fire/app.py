@@ -67,27 +67,27 @@ EFFECT = _effect_arg()
 
 FIRE_PALETTE = [
     None,           # index 0 = black / no rect
-    "0x3C0000FF",   # 1 near-black red
-    "0x821000FF",   # 2 dark red
-    "0xC83200FF",   # 3 red
-    "0xFF6400FF",   # 4 orange-red
-    "0xFFA028FF",   # 5 orange
-    "0xFFE060FF",   # 6 yellow
-    "0xFFF8C8FF",   # 7 near-white
+    "#3C0000FF",    # 1 near-black red
+    "#821000FF",    # 2 dark red
+    "#C83200FF",    # 3 red
+    "#FF6400FF",    # 4 orange-red
+    "#FFA028FF",    # 5 orange
+    "#FFE060FF",    # 6 yellow
+    "#FFF8C8FF",    # 7 near-white
 ]
 
 PLASMA_PALETTE = [
-    "0x0A0050FF",   # 0 deep blue
-    "0x3A0080FF",   # 1 indigo
-    "0x7000A0FF",   # 2 purple
-    "0xB0006AFF",   # 3 magenta
-    "0xD04000FF",   # 4 orange-red
-    "0xE08000FF",   # 5 amber
-    "0xFFD000FF",   # 6 yellow
+    "#0A0050FF",    # 0 deep blue
+    "#3A0080FF",    # 1 indigo
+    "#7000A0FF",    # 2 purple
+    "#B0006AFF",    # 3 magenta
+    "#D04000FF",    # 4 orange-red
+    "#E08000FF",    # 5 amber
+    "#FFD000FF",    # 6 yellow
 ]
 
-RAIN_HEAD   = "0x66CCFFFF"
-RAIN_TRAIL  = ["0x3388EEFF", "0x2255BBFF", "0x112E66FF"]
+RAIN_HEAD   = "#66CCFFFF"
+RAIN_TRAIL  = ["#3388EEFF", "#2255BBFF", "#112E66FF"]
 
 # ---------------------------------------------------------------------------
 # Pixel buffer → rectangle list
@@ -115,6 +115,7 @@ def _buf_to_rects(buf, palette):
                 border_width=0,
                 fill="solid",
                 fill_colors=[palette[idx]],
+                id=f"px{run_start}_{y}",
             ))
     return rects
 
@@ -243,6 +244,7 @@ def _tick_rain():
                 border_width=0,
                 fill="solid",
                 fill_colors=[palette_rain[idx]],
+                id=f"px{run_start}_{y}",
             ))
     assert len(rects) <= 100
     return rects

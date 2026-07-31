@@ -44,7 +44,7 @@ def _draw(host, elements, led_notification=False):
         "elements": elements,
     }
     if led_notification:
-        body["led_notification_color"] = "0x2196F3FF"
+        body["led_notification_color"] = "#2196F3FF"
     data = json.dumps(body).encode("utf-8")
     req = urllib.request.Request(
         _base(host) + "/api/display/draw",
@@ -145,8 +145,8 @@ def _build_headline(series):
         return "REGEN", True
 
 
-def _rect(x, y, w, h, color):
-    return {"type": "rectangle", "x": x, "y": y, "width": w, "height": h,
+def _rect(el_id, x, y, w, h, color):
+    return {"id": el_id, "type": "rectangle", "x": x, "y": y, "width": w, "height": h,
             "border_width": 0, "fill": "solid", "fill_colors": [color]}
 
 
@@ -154,39 +154,40 @@ def _bar_color(value):
     """Buienradar-style intensity colors: drizzle cyan, showers blue, downpour purple.
     Saturated hues with zeroed channels survive the display's gamma curve."""
     if value < 70:
-        return "0x00C8FFFF"
+        return "#00C8FFFF"
     if value < 150:
-        return "0x0064FFFF"
-    return "0x9600FFFF"
+        return "#0064FFFF"
+    return "#9600FFFF"
 
 
 def _build_elements(headline, series):
     """Droplet icon + headline on top, gapped intensity bars over a baseline below."""
     elements = []
     # Droplet icon (5x6) at the top left, with a light catch-light pixel
-    drop = "0x00A8FFFF"
+    drop = "#00A8FFFF"
     elements += [
-        _rect(4, 0, 1, 2, drop),   # tip
-        _rect(3, 2, 3, 1, drop),
-        _rect(2, 3, 5, 2, drop),   # body
-        _rect(3, 5, 3, 1, drop),
-        _rect(3, 3, 1, 1, "0xB3E5FCFF"),
+        _rect("drop_tip", 4, 0, 1, 2, drop),
+        _rect("drop_neck", 3, 2, 3, 1, drop),
+        _rect("drop_body", 2, 3, 5, 2, drop),   # body
+        _rect("drop_base", 3, 5, 3, 1, drop),
+        _rect("drop_glint", 3, 3, 1, 1, "#B3E5FCFF"),
     ]
     # Headline, centered in the space right of the icon (x=10..72; the widest
     # case "REGEN IN 120 MIN" is 62px in the small font, measured via the atlas)
     elements.append({
+        "id": "headline",
         "type": "text",
         "text": headline,
         "x": 41,
         "y": 0,
         "font": "small",
-        "color": "0xEAF6FFFF",
+        "color": "#EAF6FFFF",
         "align": "top_mid",
     })
     # Baseline with subtle half-hour ticks
-    elements.append(_rect(0, 15, 72, 1, "0x102027FF"))
-    for tick_x in (18, 36, 54):
-        elements.append(_rect(tick_x, 15, 1, 1, "0x3A4A55FF"))
+    elements.append(_rect("baseline", 0, 15, 72, 1, "#102027FF"))
+    for i, tick_x in enumerate((18, 36, 54)):
+        elements.append(_rect(f"tick{i}", tick_x, 15, 1, 1, "#3A4A55FF"))
     # Timeline: 24 slots of 5 min, 2px bars with a 1px gap, colored by intensity
     for slot in range(24):
         if slot < len(series):
@@ -196,7 +197,7 @@ def _build_elements(headline, series):
         if value <= 0:
             continue
         h = max(1, round(value / 255 * 7))
-        elements.append(_rect(slot * 3, 16 - h, 2, h, _bar_color(value)))
+        elements.append(_rect(f"bar{slot}", slot * 3, 16 - h, 2, h, _bar_color(value)))
     return elements
 
 

@@ -36,7 +36,7 @@ def draw(elements, **extra):
     with urllib.request.urlopen(req, timeout=5):
         pass
 
-def text(txt, x=0, y=0, font="normal", color="0xFFFFFFFF", **kw):
+def text(txt, x=0, y=0, font="normal", color="#FFFFFFFF", **kw):
     return {"type": "text", "text": str(txt), "x": x, "y": y, "font": font, "color": color, **kw}
 
 def rectangle(x, y, width, height, **kw):
@@ -137,10 +137,10 @@ def _net_bytes():
 def _color(pct_or_frac_x100):
     """Green / orange / red based on percentage."""
     if pct_or_frac_x100 >= 90:
-        return "0xE60022FF"
+        return "#E60022FF"
     if pct_or_frac_x100 >= 70:
-        return "0xF59E0BFF"
-    return "0x22C55EFF"
+        return "#F59E0BFF"
+    return "#22C55EFF"
 
 
 def _fmt_net(rate):
@@ -182,14 +182,17 @@ def tick():
         (10, "NET", net_frac * 100, net_frac, _fmt_net(net_rate)),
     ):
         col = _color(pct)
+        key = label.lower()
 
         # Label
-        elements.append(text(label, x=0, y=row_y, font="tiny", color="0xFFFFFFFF"))
+        elements.append(text(label, x=0, y=row_y, font="tiny", color="#FFFFFFFF",
+                             id=f"{key}_label"))
 
         # Bar outline (no fill, subtle border)
         elements.append(rectangle(
             x=15, y=row_y, width=41, height=5,
-            border_width=1, border_color="0x505050FF",
+            border_width=1, border_color="#505050FF",
+            id=f"{key}_bar_outline",
         ))
 
         # Bar fill (solid, no border)
@@ -198,11 +201,12 @@ def tick():
             elements.append(rectangle(
                 x=16, y=row_y + 1, width=fill_w, height=3,
                 border_width=0, fill="solid", fill_colors=[col],
+                id=f"{key}_bar_fill",
             ))
 
         # Value text, right-aligned at x=71
         elements.append(text(value_str, x=71, y=row_y, font="tiny",
-                             align="top_right", color=col))
+                             align="top_right", color=col, id=f"{key}_value"))
 
     try:
         draw(elements)

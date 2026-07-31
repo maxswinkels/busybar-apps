@@ -105,8 +105,8 @@ def _haversine(lat1, lon1, lat2, lon2):
 # Display elements
 # ---------------------------------------------------------------------------
 
-def _rect(x, y, w, h, color):
-    return {"type": "rectangle", "x": x, "y": y, "width": w, "height": h,
+def _rect(el_id, x, y, w, h, color):
+    return {"id": str(el_id), "type": "rectangle", "x": x, "y": y, "width": w, "height": h,
             "border_width": 0, "fill": "solid", "fill_colors": [color]}
 
 
@@ -116,7 +116,7 @@ def _rect(x, y, w, h, color):
 STARS = [(3, 6, 2), (6, 1, 1), (11, 3, 2), (15, 6, 1), (19, 1, 2), (24, 4, 0),
          (29, 7, 2), (33, 0, 1), (38, 3, 2), (43, 6, 1), (47, 1, 2), (51, 5, 0),
          (55, 2, 2), (59, 7, 1), (63, 0, 2), (66, 4, 1), (69, 2, 2), (70, 6, 0)]
-STAR_COLORS = ["0xFFFFFFFF", "0x969696FF", "0x505050FF"]
+STAR_COLORS = ["#FFFFFFFF", "#969696FF", "#505050FF"]
 GLINTS = [(8, 2), (62, 5), (26, 1), (55, 3)]
 
 
@@ -124,11 +124,11 @@ def _starfield(tick=0):
     els = []
     for i, (x, y, tier) in enumerate(STARS):
         t = max(0, tier - (1 if (i + tick) % 4 == 0 else 0))
-        els.append(_rect(x, y, 1, 1, STAR_COLORS[t]))
+        els.append(_rect(f"star{i}", x, y, 1, 1, STAR_COLORS[t]))
     gx, gy = GLINTS[tick % len(GLINTS)]
-    els.append(_rect(gx - 1, gy, 3, 1, "0x787878FF"))
-    els.append(_rect(gx, gy - 1, 1, 3, "0x787878FF"))
-    els.append(_rect(gx, gy, 1, 1, "0xFFFFFFFF"))
+    els.append(_rect("glint_h", gx - 1, gy, 3, 1, "#787878FF"))
+    els.append(_rect("glint_v", gx, gy - 1, 1, 3, "#787878FF"))
+    els.append(_rect("glint_c", gx, gy, 1, 1, "#FFFFFFFF"))
     return els
 
 
@@ -136,22 +136,22 @@ def _iss_sprite(x0):
     """Pseudo-3D ISS, ~22x7 at offset x0: four slanted solar arrays with a
     lit top and shaded bottom half, a truss with a drop shadow, and a module
     stack with a lit side, a shadow side and cyan docking ports."""
-    light = "0xFFC832FF"
-    dark  = "0xB46400FF"
-    white = "0xFFFFFFFF"
-    gray  = "0x8C8C8CFF"
-    cyan  = "0x00E5FFFF"
+    light = "#FFC832FF"
+    dark  = "#B46400FF"
+    white = "#FFFFFFFF"
+    gray  = "#8C8C8CFF"
+    cyan  = "#00E5FFFF"
     els = []
     for px in (0, 3, 15, 18):
         for r in range(7):
             off = (6 - r) // 3   # rows shift right toward the top: slanted panels
-            els.append(_rect(x0 + px + off, r, 2, 1, light if r < 3 else dark))
-    els.append(_rect(x0 + 2, 3, 17, 1, white))       # truss
-    els.append(_rect(x0 + 3, 4, 15, 1, "0x505050FF"))  # truss drop shadow
-    els.append(_rect(x0 + 9, 1, 2, 5, white))        # module stack, lit side
-    els.append(_rect(x0 + 11, 1, 1, 5, gray))        # module stack, shadow side
-    els.append(_rect(x0 + 10, 0, 1, 1, cyan))        # docking port top
-    els.append(_rect(x0 + 10, 6, 1, 1, cyan))        # docking port bottom
+            els.append(_rect(f"panel_{px}_{r}", x0 + px + off, r, 2, 1, light if r < 3 else dark))
+    els.append(_rect("truss", x0 + 2, 3, 17, 1, white))       # truss
+    els.append(_rect("truss_shadow", x0 + 3, 4, 15, 1, "#505050FF"))  # truss drop shadow
+    els.append(_rect("module_lit", x0 + 9, 1, 2, 5, white))        # module stack, lit side
+    els.append(_rect("module_shadow", x0 + 11, 1, 1, 5, gray))        # module stack, shadow side
+    els.append(_rect("dock_top", x0 + 10, 0, 1, 1, cyan))        # docking port top
+    els.append(_rect("dock_bottom", x0 + 10, 6, 1, 1, cyan))        # docking port bottom
     return els
 
 
@@ -174,9 +174,10 @@ def _build_approach(distance, tick=0):
     elements = _starfield(tick)
     elements += _iss_sprite(_iss_x(distance))
     elements.append({
+        "id": "info_text",
         "type": "text", "text": f"ISS  {int(distance)} KM",
         "x": 36, "y": 9, "font": "small",
-        "color": "0xFFFFFFFF", "align": "top_mid",
+        "color": "#FFFFFFFF", "align": "top_mid",
     })
     return elements
 
@@ -186,9 +187,10 @@ def _build_depart(distance, tick=0):
     elements = _starfield(tick)
     elements += _iss_sprite(_iss_x_depart(distance))
     elements.append({
+        "id": "info_text",
         "type": "text", "text": f"ISS  {int(distance)} KM",
         "x": 36, "y": 9, "font": "small",
-        "color": "0xFFFFFFFF", "align": "top_mid",
+        "color": "#FFFFFFFF", "align": "top_mid",
     })
     return elements
 
@@ -198,9 +200,10 @@ def _build_overhead(distance, velocity, tick=0):
     elements = _starfield(tick)
     elements += _iss_sprite(25)
     elements.append({
+        "id": "info_text",
         "type": "text", "text": f"OVERHEAD  {int(distance)} KM",
         "x": 36, "y": 9, "font": "small",
-        "color": "0x00E5FFFF", "align": "top_mid",
+        "color": "#00E5FFFF", "align": "top_mid",
     })
     return elements
 
@@ -270,7 +273,7 @@ def _run_test(host):
             elements = _build_overhead(distance, fake_velocity, tick=i)
             notify_color = None
             if not led_notified:
-                notify_color = "0x00A8FFFF"
+                notify_color = "#00A8FFFF"
                 led_notified = True
             try:
                 status, _ = _draw(host, elements, led_notification_color=notify_color)
@@ -370,7 +373,7 @@ def main():
                 elements = _build_overhead(distance, velocity, tick=tick)
                 notify_color = None
                 if not led_notified:
-                    notify_color = "0x00A8FFFF"
+                    notify_color = "#00A8FFFF"
                     led_notified = True
                 try:
                     status, _ = _draw(args.host, elements, led_notification_color=notify_color)
