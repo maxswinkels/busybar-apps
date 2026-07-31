@@ -34,6 +34,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import wave
+import zlib
 
 # ---------------------------------------------------------------------------
 # .env loader (inline; no third-party deps)
@@ -206,106 +207,93 @@ EURO_SPRITE = [
     "011110",
 ]
 
-def _euro_rects(ex, ey):
-    """Render the euro sprite as gold rectangle elements at position (ex, ey)."""
-    rects = []
-    for row_idx, row in enumerate(EURO_SPRITE):
-        y = ey + row_idx
-        x = 0
-        while x < len(row):
-            if row[x] == "1":
-                run_start = x
-                x += 1
-                while x < len(row) and row[x] == "1":
-                    x += 1
-                rects.append(rectangle(
-                    x=ex + run_start, y=y,
-                    width=x - run_start, height=1,
-                    border_width=0,
-                    fill="solid",
-                    fill_colors=["#FFD700FF"],
-                    id=f"euro{len(rects)}",
-                ))
-            else:
-                x += 1
-    return rects
+# Coin / pile colours (r, g, b)
+DARK_GOLD = (0xB8, 0x86, 0x0B)   # rim
+GOLD = (0xFF, 0xD7, 0x00)
+HIGHLIGHT = (0xFF, 0xF8, 0xC8)
 
-# ---------------------------------------------------------------------------
-# Pixel buffer -> rectangles
-# ---------------------------------------------------------------------------
 
-def _buf_to_rects(buf, palette):
-    """72x16 index buffer -> rectangle elements. index 0 = transparent (skip)."""
-    rects = []
-    for y in range(H):
-        x = 0
-        while x < W:
-            idx = buf[y][x]
-            if idx == 0:
-                x += 1
+def _blank():
+    return [(0, 0, 0)] * (W * H)
+
+
+def _px(buf, x, y, rgb):
+    if 0 <= x < W and 0 <= y < H:
+        buf[y * W + x] = rgb
+
+
+def _euro_px(buf, ex, ey):
+    """Draw the euro sprite (gold) into the pixel buffer at (ex, ey)."""
+    for dy, row in enumerate(EURO_SPRITE):
+        for dx, ch in enumerate(row):
+            if ch == "1":
+                _px(buf, ex + dx, ey + dy, GOLD)
+
+
+def _pile_px(buf, pile):
+    """Draw the settled coin pile: gold columns with a dark rim on top."""
+    for c in range(W):
+        if pile[c] > 0:
+            top_row = 15 - pile[c] + 1
+            for row in range(top_row, 16):
+                _px(buf, c, row, GOLD)
+            _px(buf, c, top_row, DARK_GOLD)
+
+
+def _coin_px(buf, cx, cy):
+    """Draw one 5x5 airborne coin: gold with a dark rim, rounded corners and a
+    highlight pixel. Corners are left untouched so the pile shows through."""
+    corners = {(0, 0), (4, 0), (0, 4), (4, 4)}
+    for dy in range(5):
+        for dx in range(5):
+            if (dx, dy) in corners:
                 continue
-            run_start = x
-            x += 1
-            while x < W and buf[y][x] == idx:
-                x += 1
-            rects.append(rectangle(
-                x=run_start, y=y,
-                width=x - run_start, height=1,
-                border_width=0,
-                fill="solid",
-                fill_colors=[palette[idx]],
-                id=f"pile{len(rects)}",
-            ))
-    return rects
+            rim = dx in (0, 4) or dy in (0, 4)
+            _px(buf, cx + dx, cy + dy, DARK_GOLD if rim else GOLD)
+    _px(buf, cx + 1, cy + 1, HIGHLIGHT)
 
 
-def _coarsen_coin_buf(buf):
-    """Collapse palette: index 3->2 (highlight->gold) to reduce distinct runs."""
-    return [[2 if v == 3 else v for v in row] for row in buf]
+def _png(pixels):
+    """72x16 flat list of (r, g, b) -> minimal RGBA PNG bytes (stdlib only)."""
+    raw = bytearray()
+    for y in range(H):
+        raw.append(0)
+        base = y * W
+        for x in range(W):
+            r, g, b = pixels[base + x]
+            raw += bytes((r, g, b, 255))
+
+    def _chunk(tag, data):
+        c = tag + data
+        return struct.pack(">I", len(data)) + c + struct.pack(">I", zlib.crc32(c) & 0xffffffff)
+
+    return (b"\x89PNG\r\n\x1a\n"
+            + _chunk(b"IHDR", struct.pack(">IIBBBBB", W, H, 8, 6, 0, 0, 0))
+            + _chunk(b"IDAT", zlib.compress(bytes(raw), 6))
+            + _chunk(b"IEND", b""))
 
 
-def _build_coin_frame(buf):
-    """Convert coin buffer to rects, coarsening palette if needed to stay <=100."""
-    rects = _buf_to_rects(buf, COIN_PALETTE)
-    if len(rects) > 100:
-        # Collapse highlight->gold: fewer distinct runs
-        buf = _coarsen_coin_buf(buf)
-        rects = _buf_to_rects(buf, COIN_PALETTE)
-    if len(rects) > 100:
-        # Collapse rim->gold too: one index per coin pixel so runs actually merge
-        buf = [[2 if v else 0 for v in row] for row in buf]
-        rects = _buf_to_rects(buf, COIN_PALETTE)
-    # Hard cap: if pathologically many coins crowd the same rows, drop the tail
-    # (the display stays valid; we just lose some coin pixels rather than crashing)
-    return rects[:100]
+# Rotate filenames: the device locks an asset while a draw reads it, so
+# re-uploading the same name too soon returns HTTP 508.
+_RING = 4
+_frame_no = 0
 
-# ---------------------------------------------------------------------------
-# Coins & pile palette (pile buffer: 1=dark gold rim, 2=gold)
-# ---------------------------------------------------------------------------
 
-COIN_PALETTE = [
-    None,          # 0 transparent
-    "#B8860BFF",  # 1 dark gold rim
-    "#FFD700FF",  # 2 gold
-    "#FFF8C8FF",  # 3 highlight
-]
-
-def _coin_rects(cx, cy, i):
-    """One airborne coin as 2 layered elements: a rim-bordered gold rect plus a
-    highlight pixel. 16 coins cost 32 elements, so the 100-element cap is never
-    hit and the rim can't get collapsed away mid-rain. radius is ignored by the
-    emulator (draws square) but rounds the corners on real hardware. i is the
-    coin's index in the current frame's airborne list, used to give each of
-    its 2 elements a distinct, stable-per-slot id."""
-    return [
-        rectangle(x=cx, y=cy, width=5, height=5, radius=2,
-                  border_width=1, border_color="#B8860BFF",
-                  fill="solid", fill_colors=["#FFD700FF"],
-                  id=f"coin{i}"),
-        rectangle(x=cx + 1, y=cy + 1, width=1, height=1, border_width=0,
-                  fill="solid", fill_colors=["#FFF8C8FF"],
-                  id=f"coinhi{i}"),
-    ]
+def _push(pixels, text_elements, first_draw_flag):
+    """Upload the pixel frame and draw it as one image plus native text.
+    On 409: silent skip; on the first frame's 409 returns (False, False)."""
+    global _frame_no
+    fn = "frame%d.png" % (_frame_no % _RING)
+    _frame_no += 1
+    upload_asset(fn, _png(pixels))
+    elements = [{"id": "frame", "type": "image", "path": fn, "x": 0, "y": 0}] + text_elements
+    try:
+        draw(elements, priority=90, led_notification_color="#FFD700FF")
+        return True, False
+    except urllib.error.HTTPError as e:
+        if e.code == 409:
+            return False, first_draw_flag
+        raise
 
 # ---------------------------------------------------------------------------
 # Cash-register sound synthesis
@@ -383,36 +371,19 @@ def upload_sound():
 # Celebration
 # ---------------------------------------------------------------------------
 
-def _draw_frame(elements, first_draw_flag):
-    """Send one frame; returns (ok, first_draw_flag).
-    On 409: silent skip. On first frame 409 returns (False, False).
-    Re-raises other errors."""
-    try:
-        draw(elements, priority=90, led_notification_color="#FFD700FF")
-        return True, False  # first_draw done, succeeded
-    except urllib.error.HTTPError as e:
-        if e.code == 409:
-            return False, first_draw_flag  # keep first_draw_flag unchanged
-        raise
-
-
-def _pile_rects(pile):
-    """Render the coin pile as rectangle elements from the pile array."""
-    buf = [[0] * W for _ in range(H)]
-    for c in range(W):
-        if pile[c] > 0:
-            top_row = 15 - pile[c] + 1
-            for row in range(top_row, 16):
-                buf[row][c] = 2  # gold
-            buf[top_row][c] = 1  # dark rim at the top edge
-    return _build_coin_frame(buf)
-
-
 def celebrate(amount_str, contact):
-    """Play the full coin celebration on the LED display."""
+    """Play the full coin celebration: one image per frame for the pixel layer
+    (pile, coins, euro sprite, sparkles) plus the amount and contact as native
+    text elements, so the fonts stay crisp and each frame is only 2-3 elements."""
     global SOUND_UPLOADED
 
     first_draw = True  # track whether the first draw 409'd
+    FRAME_T = 0.05     # ~20 fps cap; the image push itself paces us to ~15-19 fps
+
+    def _pace(t0):
+        dt = time.monotonic() - t0
+        if dt < FRAME_T:
+            time.sleep(FRAME_T - dt)
 
     # Phase A: coin rain with bounce and pile (max 40 frames)
     pile = [0] * W
@@ -438,6 +409,7 @@ def celebrate(amount_str, contact):
         pass
 
     for frame in range(40):
+        t0 = time.monotonic()
         still_airborne = []
         for coin in coins:
             x = coin["x"]
@@ -461,22 +433,19 @@ def celebrate(amount_str, contact):
 
         coins = still_airborne
 
-        # pile behind, airborne coins on top as layered rects
-        rects = _pile_rects(pile)
-        for i, coin in enumerate(coins):
+        # pile behind, airborne coins on top
+        buf = _blank()
+        _pile_px(buf, pile)
+        for coin in coins:
             cy = int(coin["y"])
             if cy + 4 >= 0 and cy < H:
-                rects += _coin_rects(coin["x"], cy, i)
+                _coin_px(buf, coin["x"], cy)
 
-        if not rects:
-            time.sleep(0.05)
-            continue
-
-        ok, first_draw = _draw_frame(rects, first_draw)
+        ok, first_draw = _push(buf, [], first_draw)
         if not ok and first_draw:
             # First draw 409'd: skip entire celebration
             return
-        time.sleep(0.05)
+        _pace(t0)
 
         if not coins:
             break
@@ -490,6 +459,7 @@ def celebrate(amount_str, contact):
     # Phase B: odometer count-up (46 frames)
     target = float(amount_str)
     for k in range(46):
+        t0 = time.monotonic()
         t = k / 45.0
         value = target * (1 - (1 - t) ** 3)
         s = format_amount("%.2f" % value)
@@ -499,22 +469,19 @@ def celebrate(amount_str, contact):
         ex = (72 - total_w) // 2
         ey = 3
 
-        euro_rects = _euro_rects(ex, ey)
-        pile_rects = _pile_rects(pile)
+        buf = _blank()
+        _pile_px(buf, pile)
+        _euro_px(buf, ex, ey)
 
-        elements = pile_rects + euro_rects + [
+        text_els = [
             text(s, x=ex + 8, y=2, font="bold", align="top_left",
                  color=amount_color, id="amount"),
         ]
 
-        # guard: drop excess if too many elements (phases B/C)
-        if len(elements) > 100:
-            elements = elements[:100]
-
-        ok, first_draw = _draw_frame(elements, first_draw)
+        ok, first_draw = _push(buf, text_els, first_draw)
         if not ok and first_draw:
             return
-        time.sleep(0.05)
+        _pace(t0)
 
     # Phase C: hold + contact
     final_s = format_amount("%.2f" % target)
@@ -541,7 +508,7 @@ def celebrate(amount_str, contact):
                           id="contact")
 
     for frame in range(c_frames):
-        amount_color = "#FFD700FF"
+        t0 = time.monotonic()
 
         # drain pile every 3rd frame
         if frame % 3 == 0:
@@ -549,38 +516,25 @@ def celebrate(amount_str, contact):
                 if pile[c] > 0:
                     pile[c] -= 1
 
-        euro_rects = _euro_rects(ex, ey)
-        pile_rects = _pile_rects(pile)
-
+        buf = _blank()
+        _pile_px(buf, pile)
+        _euro_px(buf, ex, ey)
         # 3 random sparkles
-        sparkles = []
-        for i in range(3):
-            sparkles.append(rectangle(
-                x=random.randint(0, W - 1),
-                y=random.randint(0, H - 1),
-                width=1, height=1,
-                border_width=0,
-                fill="solid",
-                fill_colors=["#FFF8C8FF"],
-                id=f"spark{i}",
-            ))
+        for _ in range(3):
+            _px(buf, random.randint(0, W - 1), random.randint(0, H - 1), HIGHLIGHT)
 
-        elements = pile_rects + euro_rects + [
+        text_els = [
             text(final_s, x=ex + 8, y=2, font="bold", align="top_left",
-                 color=amount_color, id="amount"),
+                 color="#FFD700FF", id="amount"),
             # Stable id: the renderer keys scroll state on element id, so fresh
             # ids every frame would reset the contact scroll each redraw.
             contact_el,
-        ] + sparkles
+        ]
 
-        # guard: drop sparkles first if too many (never the amount)
-        if len(elements) > 100:
-            elements = elements[:-len(sparkles)]
-
-        ok, first_draw = _draw_frame(elements, first_draw)
+        ok, first_draw = _push(buf, text_els, first_draw)
         if not ok and first_draw:
             return
-        time.sleep(0.05)
+        _pace(t0)
 
     # Release the display
     try:
