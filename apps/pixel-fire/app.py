@@ -3,14 +3,22 @@
 
     python app.py [fire|rain|plasma]     # BUSY Bar over USB (always 10.0.4.20)
     python app.py --host 127.0.0.1:8080  # emulator or a Wi-Fi bar
+
+Each frame is rendered to a single 72x16 image and pushed to the bar as one
+image element. Drawing hundreds of individual rectangles costs ~3.6 ms each on
+the device, so a full frame of rects only manages 3-6 fps; a full-frame image
+is a flat ~50 ms regardless of how busy the picture is, so every effect runs
+smoothly at ~18 fps.
 """
 import json
 import math
 import random
+import struct
 import sys
 import time
 import urllib.error
 import urllib.request
+import zlib
 
 APP = "pixel-fire"
 W, H = 72, 16
@@ -30,16 +38,103 @@ def _host(default="10.0.4.20"):
 
 BASE = "http://" + _host().replace("http://", "").rstrip("/")
 
-def draw(elements, **extra):
-    body = {"application_name": APP, "elements": elements, **extra}
-    req = urllib.request.Request(BASE + "/api/display/draw",
-                                 data=json.dumps(body).encode(), method="POST",
-                                 headers={"Content-Type": "application/json"})
+
+def _post(path, data, content_type):
+    req = urllib.request.Request(BASE + path, data=data, method="POST",
+                                 headers={"Content-Type": content_type})
     with urllib.request.urlopen(req, timeout=5):
         pass
 
-def rectangle(x, y, width, height, **kw):
-    return {"type": "rectangle", "x": x, "y": y, "width": width, "height": height, **kw}
+
+def _clear():
+    req = urllib.request.Request(
+        BASE + "/api/display/draw?application_name=" + APP, method="DELETE")
+    try:
+        with urllib.request.urlopen(req, timeout=5):
+            pass
+    except urllib.error.URLError:
+        pass
+
+
+def _png(pixels):
+    """72x16 flat list of (r, g, b) -> minimal RGBA PNG bytes (stdlib only)."""
+    raw = bytearray()
+    for y in range(H):
+        raw.append(0)  # filter type 0 (none) per scanline
+        for x in range(W):
+            r, g, b = pixels[y * W + x]
+            raw += bytes((r, g, b, 255))
+
+    def _chunk(tag, data):
+        c = tag + data
+        return struct.pack(">I", len(data)) + c + struct.pack(">I", zlib.crc32(c) & 0xffffffff)
+
+    return (b"\x89PNG\r\n\x1a\n"
+            + _chunk(b"IHDR", struct.pack(">IIBBBBB", W, H, 8, 6, 0, 0, 0))
+            + _chunk(b"IDAT", zlib.compress(bytes(raw), 6))
+            + _chunk(b"IEND", b""))
+
+
+# The bar renders one uploaded image far faster than many rect elements, but it
+# briefly locks an asset while a draw reads it. Uploading over that same name
+# too soon returns HTTP 508, so we rotate through a few filenames.
+_RING = 4
+_frame = 0
+
+
+def show(pixels):
+    """Push one full-screen frame: upload the PNG, draw it as one image."""
+    global _frame
+    fn = "frame%d.png" % (_frame % _RING)
+    _frame += 1
+    _post("/api/assets/upload?application_name=%s&file=%s" % (APP, fn),
+          _png(pixels), "application/octet-stream")
+    body = {"application_name": APP,
+            "elements": [{"id": "frame", "type": "image", "path": fn, "x": 0, "y": 0}]}
+    try:
+        _post("/api/display/draw", json.dumps(body).encode(), "application/json")
+    except urllib.error.HTTPError as e:
+        if e.code != 409:  # 409 = a higher-priority app owns the display
+            raise
+
+
+def _flatten(buf, palette):
+    """2D index buffer + rgb palette -> flat list of (r, g, b), row-major."""
+    px = []
+    for y in range(H):
+        row = buf[y]
+        for x in range(W):
+            px.append(palette[row[x]])
+    return px
+
+# ---------------------------------------------------------------------------
+# Palettes (r, g, b). Index 0 is the background (off / black) for fire and rain;
+# plasma fills the whole frame so it indexes its palette directly.
+# ---------------------------------------------------------------------------
+
+FIRE_PALETTE = [
+    (0x00, 0x00, 0x00),  # 0 background (off)
+    (0x3C, 0x00, 0x00),  # 1 near-black red
+    (0x82, 0x10, 0x00),  # 2 dark red
+    (0xC8, 0x32, 0x00),  # 3 red
+    (0xFF, 0x64, 0x00),  # 4 orange-red
+    (0xFF, 0xA0, 0x28),  # 5 orange
+    (0xFF, 0xE0, 0x60),  # 6 yellow
+    (0xFF, 0xF8, 0xC8),  # 7 near-white
+]
+
+PLASMA_PALETTE = [
+    (0x0A, 0x00, 0x50),  # 0 deep blue
+    (0x3A, 0x00, 0x80),  # 1 indigo
+    (0x70, 0x00, 0xA0),  # 2 purple
+    (0xB0, 0x00, 0x6A),  # 3 magenta
+    (0xD0, 0x40, 0x00),  # 4 orange-red
+    (0xE0, 0x80, 0x00),  # 5 amber
+    (0xFF, 0xD0, 0x00),  # 6 yellow
+]
+
+RAIN_HEAD = (0x66, 0xCC, 0xFF)
+RAIN_TRAIL = [(0x33, 0x88, 0xEE), (0x22, 0x55, 0xBB), (0x11, 0x2E, 0x66)]
 
 # ---------------------------------------------------------------------------
 # Effect selection
@@ -60,78 +155,6 @@ def _effect_arg():
     return "fire"
 
 EFFECT = _effect_arg()
-
-# ---------------------------------------------------------------------------
-# Palettes
-# ---------------------------------------------------------------------------
-
-FIRE_PALETTE = [
-    None,           # index 0 = black / no rect
-    "#3C0000FF",    # 1 near-black red
-    "#821000FF",    # 2 dark red
-    "#C83200FF",    # 3 red
-    "#FF6400FF",    # 4 orange-red
-    "#FFA028FF",    # 5 orange
-    "#FFE060FF",    # 6 yellow
-    "#FFF8C8FF",    # 7 near-white
-]
-
-PLASMA_PALETTE = [
-    "#0A0050FF",    # 0 deep blue
-    "#3A0080FF",    # 1 indigo
-    "#7000A0FF",    # 2 purple
-    "#B0006AFF",    # 3 magenta
-    "#D04000FF",    # 4 orange-red
-    "#E08000FF",    # 5 amber
-    "#FFD000FF",    # 6 yellow
-]
-
-RAIN_HEAD   = "#66CCFFFF"
-RAIN_TRAIL  = ["#3388EEFF", "#2255BBFF", "#112E66FF"]
-
-# ---------------------------------------------------------------------------
-# Pixel buffer → rectangle list
-# ---------------------------------------------------------------------------
-
-def _buf_to_rects(buf, palette):
-    """Convert 72×16 index buffer + palette list to rectangle elements.
-    index 0 → skip (background). palette[i] = color string.
-    Merges horizontal runs of same index per row."""
-    rects = []
-    for y in range(H):
-        x = 0
-        while x < W:
-            idx = buf[y][x]
-            if idx == 0:
-                x += 1
-                continue
-            run_start = x
-            x += 1
-            while x < W and buf[y][x] == idx:
-                x += 1
-            rects.append(rectangle(
-                x=run_start, y=y,
-                width=x - run_start, height=1,
-                border_width=0,
-                fill="solid",
-                fill_colors=[palette[idx]],
-                id=f"px{run_start}_{y}",
-            ))
-    return rects
-
-
-def _coarsen(buf):
-    """Halve palette indices (except 0) to reduce rect count."""
-    return [[max(1, v >> 1) if v else 0 for v in row] for row in buf]
-
-
-def _build_frame(buf, palette):
-    rects = _buf_to_rects(buf, palette)
-    while len(rects) > 96:
-        buf = _coarsen(buf)
-        rects = _buf_to_rects(buf, palette)
-    assert len(rects) <= 100
-    return rects
 
 # ---------------------------------------------------------------------------
 # Fire effect
@@ -164,25 +187,16 @@ def _tick_fire():
         # Update prev for next frame
         _heat_prev[y] = list(_heat[y])
 
-    # Smooth horizontally before quantizing: kills pixel speckle so palette
-    # bands form long runs (the 100-element draw limit needs wide rects).
-    # Radius-6 box filter keeps pre-coarsen rect count well under 96.
-    _R = 6
-    for y in range(H):
-        row = _heat[y]
-        _heat[y] = [sum(row[max(0, x - _R):min(W, x + _R + 1)]) //
-                    (min(W, x + _R + 1) - max(0, x - _R)) for x in range(W)]
-
-    # Map heat → palette index (7 steps + 0=black)
+    # Map heat → palette index (7 steps + 0=black). No horizontal smoothing is
+    # needed now that each frame is one image (rect count no longer matters).
     n = len(FIRE_PALETTE) - 1  # 7
     buf = [[0] * W for _ in range(H)]
     for y in range(H):
         for x in range(W):
             h = _heat[y][x]
-            idx = 0 if h < 24 else max(1, min(n, 1 + (h * n) // 256))
-            buf[y][x] = idx
+            buf[y][x] = 0 if h < 24 else max(1, min(n, 1 + (h * n) // 256))
 
-    return _build_frame(buf, FIRE_PALETTE)
+    return _flatten(buf, FIRE_PALETTE)
 
 # ---------------------------------------------------------------------------
 # Rain (matrix) effect
@@ -203,13 +217,12 @@ def _init_rain():
 
 
 def _tick_rain():
-    buf = [[0] * W for _ in range(H)]
-
-    # Using a simple per-cell colour: 0=off, 1=trail dim, 2=trail mid, 3=trail bright, 4=head
+    # per-cell index: 0=off, 1..3 = trail (dim→bright), 4 = head
+    palette = [(0x00, 0x00, 0x00)] + RAIN_TRAIL + [RAIN_HEAD]
     TRAIL_LEN = len(RAIN_TRAIL)
-    palette_rain = [None] + RAIN_TRAIL + [RAIN_HEAD]
-    HEAD_IDX = len(palette_rain) - 1
+    HEAD_IDX = len(palette) - 1
 
+    buf = [[0] * W for _ in range(H)]
     for drop in _drops:
         drop["y"] += drop["speed"]
         hy = int(drop["y"])
@@ -220,34 +233,13 @@ def _tick_rain():
             ty = hy - 1 - t
             if 0 <= ty < H:
                 buf[ty][cx] = color_idx
-        # respawn
+        # respawn once fully off the bottom
         if hy - TRAIL_LEN > H:
             drop["col"] = random.randint(0, W - 1)
             drop["y"] = random.uniform(-6, -1)
             drop["speed"] = random.uniform(0.6, 1.4)
 
-    # Build rects with per-cell palette
-    rects = []
-    for y in range(H):
-        x = 0
-        while x < W:
-            idx = buf[y][x]
-            if idx == 0:
-                x += 1
-                continue
-            run_start = x
-            x += 1
-            # Don't merge different indices for rain (columns differ)
-            rects.append(rectangle(
-                x=run_start, y=y,
-                width=1, height=1,
-                border_width=0,
-                fill="solid",
-                fill_colors=[palette_rain[idx]],
-                id=f"px{run_start}_{y}",
-            ))
-    assert len(rects) <= 100
-    return rects
+    return _flatten(buf, palette)
 
 # ---------------------------------------------------------------------------
 # Plasma effect
@@ -269,44 +261,39 @@ def _tick_plasma():
                  + math.sin((x + y) / 8.0 + 0.7 * _t))
             # v ∈ [-3, 3] → normalize → [0, n-1]
             idx = int((v + 3.0) / 6.0 * (n - 1) + 0.5)
-            idx = max(0, min(n - 1, idx))
-            buf[y][x] = idx + 1  # 0 reserved for black; shift by 1
+            buf[y][x] = max(0, min(n - 1, idx))
 
-    # plasma palette is 0-indexed with an offset; rebuild so index 0 = unused
-    plasma_pal = [None] + PLASMA_PALETTE  # index 0 unused, 1..7 = colours
-    return _build_frame(buf, plasma_pal)
+    return _flatten(buf, PLASMA_PALETTE)
 
 # ---------------------------------------------------------------------------
-# Main tick
+# Main loop
 # ---------------------------------------------------------------------------
 
-if EFFECT == "rain":
-    _init_rain()
+_TICKS = {"fire": _tick_fire, "rain": _tick_rain, "plasma": _tick_plasma}
+FRAME_T = 1.0 / 20.0  # cap; the image push itself paces us to ~18 fps
 
 
-def tick():
-    try:
-        if EFFECT == "fire":
-            rects = _tick_fire()
-        elif EFFECT == "rain":
-            rects = _tick_rain()
-        else:
-            rects = _tick_plasma()
-        draw(rects)
-    except urllib.error.HTTPError as e:
-        if e.code != 409:  # 409 = a higher-priority app owns the display
-            raise
-
-
-if __name__ == "__main__":
+def main():
+    if EFFECT == "rain":
+        _init_rain()
+    tick = _TICKS[EFFECT]
     print(f"pixel_fire [{EFFECT}] → {BASE}  (Ctrl-C to stop)")
     try:
         while True:
-            tick()
-            time.sleep(0.05)
+            t0 = time.monotonic()
+            show(tick())
+            dt = time.monotonic() - t0
+            if dt < FRAME_T:
+                time.sleep(FRAME_T - dt)
     except KeyboardInterrupt:
         print("\nstopped.")
     except urllib.error.HTTPError as e:
         sys.exit(f"error: HTTP {e.code} — {e.read().decode('utf-8', 'ignore')}")
     except urllib.error.URLError as e:
         sys.exit(f"error: cannot reach {BASE} — {e.reason}")
+    finally:
+        _clear()
+
+
+if __name__ == "__main__":
+    main()
