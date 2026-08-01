@@ -1,0 +1,8 @@
+name: Spotify Now Playing
+author: kylewhirl
+description: Shows Spotify now playing with progress, play/pause, skip, and volume controls from the BUSY Bar.
+tags:
+  - music
+  - info
+  - monitor
+preview: ./preview.gif
