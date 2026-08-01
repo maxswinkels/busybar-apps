@@ -1,0 +1,10 @@
+name: BusyBar Codex
+author: kylewhirl
+description: Tactile Codex controller with live task status, actions, navigation, reasoning control, and push-to-talk dictation.
+tags:
+  - monitor
+  - productivity
+  - ai
+  - controller
+preview: ./preview.png
+repo: https://github.com/kylewhirl/busybar-codex
