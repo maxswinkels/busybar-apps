@@ -31,12 +31,12 @@ BRIGHT = "#F0F0DCFF"
 DIM = "#6C6C63FF"
 LED_COLOR = "#F0F0DCFF"
 
-# Layout for the 5px-tall small font, two lines, no separator. The small-font ink
-# sits ~2px lower than its nominal y on the bar, so line 1 at y=0 lands on ink rows
-# 2-6 and line 2 at y=9 on rows 11-15: the lines sit at top and bottom with a roomy
-# ~4px gap in the middle.
-Y_LINE1 = 0
-Y_LINE2 = 9
+# Layout for the 5px-tall small font, two lines, no separator. On the real bar the
+# small-font ink sits ~1-2px lower than its nominal y (lower than the emulator), so
+# the whole block is nudged up one pixel: line 1 at y=-1 lands on ink rows 1-5 and
+# line 2 at y=8 on rows 10-14, sitting at top and bottom with a roomy gap between.
+Y_LINE1 = -1
+Y_LINE2 = 8
 # The device font carries a 1px right-side bearing (advance = ink + 1). Anchoring
 # right-aligned text one column past the 72px width lands the ink flush to the
 # right edge, matching the flush left column.
@@ -158,9 +158,13 @@ def _fetch_route(callsign):
                 "origin_iata": origin.get("iata_code", ""),
                 "origin_icao": origin.get("icao_code", ""),
                 "origin_city": _ascii(origin.get("municipality", "")),
+                "origin_lat": _to_float(origin.get("latitude")),
+                "origin_lon": _to_float(origin.get("longitude")),
                 "dest_iata": dest.get("iata_code", ""),
                 "dest_icao": dest.get("icao_code", ""),
                 "dest_city": _ascii(dest.get("municipality", "")),
+                "dest_lat": _to_float(dest.get("latitude")),
+                "dest_lon": _to_float(dest.get("longitude")),
             }
     except urllib.error.HTTPError as e:
         if e.code == 404:
@@ -175,6 +179,14 @@ def _ascii(s):
     return unicodedata.normalize("NFKD", s).encode("ascii", "ignore").decode()
 
 
+def _to_float(v):
+    """Parse a value to float, or None if it can't be."""
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
 def _haversine(lat1, lon1, lat2, lon2):
     """Great-circle distance in km between two (lat, lon) points."""
     R = 6371.0
@@ -183,6 +195,77 @@ def _haversine(lat1, lon1, lat2, lon2):
     dlam = math.radians(lon2 - lon1)
     a = math.sin(dphi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlam / 2) ** 2
     return R * 2 * math.asin(math.sqrt(a))
+
+
+def _bearing(lat1, lon1, lat2, lon2):
+    """Initial great-circle bearing in degrees from point 1 to point 2."""
+    phi1, phi2 = math.radians(lat1), math.radians(lat2)
+    dlam = math.radians(lon2 - lon1)
+    y = math.sin(dlam) * math.cos(phi2)
+    x = math.cos(phi1) * math.sin(phi2) - math.sin(phi1) * math.cos(phi2) * math.cos(dlam)
+    return (math.degrees(math.atan2(y, x)) + 360.0) % 360.0
+
+
+def _ang_diff(a, b):
+    """Smallest absolute difference between two bearings, in [0, 180]."""
+    return abs((a - b + 180.0) % 360.0 - 180.0)
+
+
+# Route plausibility: adsbdb matches routes by callsign against a schedule
+# database, so it returns a stale/wrong route for a slice of overflying traffic.
+# We reuse the airport coordinates it hands back to sanity-check the route
+# against the plane's real position and heading.
+ROUTE_NEAR_KM = 90.0        # within ~48 NM of an airport: terminal maneuvering
+ROUTE_OVERSHOOT_KM = 150.0  # only judge "overshoot" while still this far out
+ROUTE_HEADING_TOL = 80.0    # max heading-vs-bearing-to-destination difference
+
+
+def _route_plausible(plane, route):
+    """Return False only when a route clearly cannot belong to this plane.
+
+    Terminal traffic is trusted (a departure climbs out on its SID heading, an
+    arrival gets vectored), so near-airport routes, which are the reliable ones,
+    are never suppressed. En route, a plane heading well away from its
+    destination, or sitting beyond the destination from the origin, is rejected.
+    Missing coordinates or position mean we can't judge, so we trust the route."""
+    olat, olon = route.get("origin_lat"), route.get("origin_lon")
+    dlat, dlon = route.get("dest_lat"), route.get("dest_lon")
+    plat, plon = plane.get("lat"), plane.get("lon")
+    if None in (olat, olon, dlat, dlon, plat, plon):
+        return True
+
+    d_o = _haversine(plat, plon, olat, olon)
+    d_d = _haversine(plat, plon, dlat, dlon)
+    track = plane.get("track")
+
+    near_o = d_o <= ROUTE_NEAR_KM
+    near_d = d_d <= ROUTE_NEAR_KM
+    if near_o or near_d:
+        # Terminal traffic is normally reliable, but adsbdb sometimes returns a
+        # route with the wrong endpoints for a callsign whose plane is arriving
+        # at the airport it lists as the *origin* (or departing the one it lists
+        # as the *destination*). A real departure moves away from its origin and
+        # a real arrival moves toward its destination, so a clear contradiction
+        # near a single airport means the route does not belong to this plane.
+        if track is not None:
+            if near_o and not near_d and _ang_diff(track, _bearing(plat, plon, olat, olon)) < 60.0:
+                return False  # sitting at the "origin" but flying toward it: arriving, not departing
+            if near_d and not near_o and _ang_diff(track, _bearing(plat, plon, dlat, dlon)) > 120.0:
+                return False  # sitting at the "destination" but flying away: departing, not arriving
+        return True
+
+    if track is not None:
+        to_dest = _bearing(plat, plon, dlat, dlon)
+        if _ang_diff(track, to_dest) > ROUTE_HEADING_TOL:
+            return False
+
+    if d_d > ROUTE_OVERSHOOT_KM:
+        b_dest_orig = _bearing(dlat, dlon, olat, olon)
+        b_dest_plane = _bearing(dlat, dlon, plat, plon)
+        if _ang_diff(b_dest_orig, b_dest_plane) > 100.0:
+            return False
+
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -195,6 +278,12 @@ def _normalize(ac, home_lat, home_lon):
         return None
     alt_baro = ac.get("alt_baro")
     if alt_baro == "ground":
+        return None
+    # Aircraft on or just above the ground report barometric altitude as a small
+    # negative number (pressure altitude below field elevation on a high-QNH day)
+    # rather than the "ground" string. Treat non-positive baro altitude as ground
+    # so taxiing / just-landed traffic is not shown as a flyover with "-200ft".
+    if isinstance(alt_baro, (int, float)) and not isinstance(alt_baro, bool) and alt_baro <= 0:
         return None
 
     # Compute slant range in km
@@ -496,6 +585,15 @@ def _tick(loop_state, aircraft, args, now, fetch_route_fn):
             if msg != last_error:
                 print(f"route fetch error: {e}")
                 last_error = msg
+        # adsbdb can hand back a stale/wrong route for the callsign; drop it when
+        # it doesn't fit the plane's real position/heading, so the bar shows
+        # altitude/speed instead of a wrong origin/destination.
+        if route is not None and not _route_plausible(plane, route):
+            msg = f"route {_fmt_route(route)} implausible for {_fmt_ident(plane)}, hiding"
+            if msg != last_error:
+                print(msg)
+                last_error = msg
+            route = None
 
     # Check arrival mode suppression
     plane_hex = plane["hex"]
@@ -786,6 +884,48 @@ def _run_test(args):
     print(f"  TRA5150 (neg cache) -> {_fmt_route(r)}  not_found={nf}")
     _last_route_net = 0.0
     ROUTE_CACHE.clear()
+
+    # Route plausibility: reject stale/wrong adsbdb routes that don't fit the
+    # plane's real position/heading; trust terminal traffic and correct routes.
+    print("route plausibility:")
+    AMS, FRA, BEG = (52.31, 4.76), (50.03, 8.57), (44.82, 20.29)
+    DUB, LGW, SPU = (53.42, -6.27), (51.15, -0.18), (43.54, 16.30)
+    AGP = (36.68, -4.49)
+
+    def _rt(o, d):
+        return {"origin_lat": o[0], "origin_lon": o[1],
+                "dest_lat": d[0], "dest_lon": d[1]}
+
+    plaus_cases = [
+        ("overshoot BEG>FRA over AMS", dict(lat=52.4, lon=4.9, track=130, alt_ft=37000), _rt(BEG, FRA), False),
+        ("wrong-way LGW>DUB heading east", dict(lat=52.4, lon=4.9, track=90, alt_ft=32000), _rt(LGW, DUB), False),
+        ("correct FRA>AMS en route", dict(lat=51.0, lon=6.0, track=320, alt_ft=20000), _rt(FRA, AMS), True),
+        ("terminal departure AMS>SPU", dict(lat=52.4, lon=4.75, track=2, alt_ft=4000), _rt(AMS, SPU), True),
+        # adsbdb labels this arrival AMS>AGP; the plane sits near AMS but flies
+        # toward it (arriving), so the wrong-endpoint route must be rejected.
+        ("wrong-endpoint AMS>AGP while arriving AMS", dict(lat=52.37, lon=5.52, track=236, alt_ft=8775), _rt(AMS, AGP), False),
+        ("no coords -> trusted", dict(lat=52.4, lon=4.9, track=90, alt_ft=30000), {}, True),
+    ]
+    for name, plane, rte, expected in plaus_cases:
+        got = _route_plausible(plane, rte)
+        mark = "ok" if got == expected else "FAIL"
+        print(f"  [{mark}] {name}: plausible={got} (expected {expected})")
+        assert got == expected, f"plausibility case failed: {name}"
+
+    # Ground filter: "ground" string and non-positive baro altitude are dropped;
+    # a genuinely airborne low plane is kept.
+    print("ground filter:")
+    ground_cases = [
+        ("string ground", {"lat": 52.4, "lon": 4.8, "alt_baro": "ground"}, True),
+        ("negative baro (-200ft)", {"lat": 52.4, "lon": 4.8, "alt_baro": -200}, True),
+        ("zero baro", {"lat": 52.4, "lon": 4.8, "alt_baro": 0}, True),
+        ("low but airborne (300ft)", {"lat": 52.4, "lon": 4.8, "alt_baro": 300}, False),
+    ]
+    for name, ac, should_drop in ground_cases:
+        dropped = _normalize(ac, 52.37, 4.89) is None
+        mark = "ok" if dropped == should_drop else "FAIL"
+        print(f"  [{mark}] {name}: dropped={dropped} (expected {should_drop})")
+        assert dropped == should_drop, f"ground case failed: {name}"
 
     try:
         run_loop(args, fake_fetch_aircraft_fn, fake_fetch_route_fn, lambda s: time.sleep(0.6))
