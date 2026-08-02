@@ -43,22 +43,20 @@ COLOR_PRESETS: tuple[tuple[str, tuple[int, int, int]], ...] = (
 )
 
 LIGHT_BITMAP = (
-    "................",
-    "......####......",
-    "....########....",
-    "...##########...",
-    "..############..",
-    "..############..",
-    "...##########...",
-    "....########....",
-    ".....######.....",
-    "......####......",
-    "......####......",
-    ".....######.....",
-    ".....######.....",
-    "......####......",
-    "................",
-    "................",
+    ".....####.....",
+    "...##....##...",
+    "..#........#..",
+    ".#..........#.",
+    ".#..........#.",
+    "..#........#..",
+    "...##....##...",
+    "....#....#....",
+    ".....#..#.....",
+    ".....####.....",
+    "....######....",
+    "....#....#....",
+    ".....####.....",
+    "..............",
 )
 
 
@@ -101,9 +99,9 @@ def icon_png(size: int, color: tuple[int, int, int]) -> bytes:
     rows = bytearray()
     for y in range(size):
         rows.append(0)
-        source_y = min(15, y * 16 // size)
+        source_y = min(13, y * 14 // size)
         for x in range(size):
-            source_x = min(15, x * 16 // size)
+            source_x = min(13, x * 14 // size)
             alpha = 255 if LIGHT_BITMAP[source_y][source_x] == "#" else 0
             rows.extend((*color, alpha))
     header = struct.pack(">IIBBBBB", size, size, 8, 6, 0, 0, 0)
@@ -321,8 +319,8 @@ class App:
     async def upload_icons(self) -> None:
         assets = {
             "ha-light-active.png": icon_png(14, (99, 230, 190)),
-            "ha-light-inactive.png": icon_png(10, (255, 255, 255)),
-            "ha-light-control.png": icon_png(16, (255, 255, 255)),
+            "ha-light-inactive.png": icon_png(14, (168, 178, 195)),
+            "ha-light-control.png": icon_png(14, (255, 255, 255)),
             "ha-light-back.png": icon_png(40, (255, 255, 255)),
             "ha-blank.png": icon_png(1, (0, 0, 0)),
         }
@@ -352,8 +350,8 @@ class App:
                     types.ImageElement(
                         id=f"front_image_{slot}",
                         display=types.DisplayName.FRONT,
-                        x=slot * 18 + (0 if active else 2),
-                        y=0 if active else 2,
+                        x=slot * 18 + 2,
+                        y=1,
                         path=(
                             "ha-light-active.png"
                             if active
@@ -427,14 +425,20 @@ class App:
 
         controls = light.controls
         self.control %= len(controls)
-        labels = {"brightness": "DIM", "color": "RGB", "temperature": "TEMP"}
+        back_labels = {"brightness": "DIM", "color": "RGB", "temperature": "TEMP"}
+        front_labels = {
+            "brightness": "BRIGHT",
+            "color": "COLOR",
+            "temperature": "TEMP",
+        }
+        selected_control = controls[self.control]
         elements: list[types.DisplayElement] = [
             types.ImageElement(
                 id="front_image_0",
                 display=types.DisplayName.FRONT,
-                x=0,
-                y=0,
-                path="ha-light-control.png",
+                x=1,
+                y=1,
+                path="ha-light-active.png" if light.is_on else "ha-light-inactive.png",
             ),
             *[
                 types.ImageElement(
@@ -446,28 +450,40 @@ class App:
                 )
                 for slot in range(1, 4)
             ],
+            text_element(
+                "front_text_0",
+                front_labels[selected_control],
+                18,
+                0,
+                color=ACCENT,
+            ),
+            text_element(
+                "front_text_1",
+                self.control_value(),
+                18,
+                8,
+                font="small",
+                color=ACCENT if self.navigation == "edit" else WHITE,
+            ),
+            text_element(
+                "front_text_2",
+                f"{self.control + 1}/{len(controls)}" if len(controls) > 1 else "",
+                70,
+                0,
+                color=MUTED,
+                align="top_right",
+            ),
+            text_element(
+                "front_text_3",
+                "EDIT" if self.navigation == "edit" else "",
+                70,
+                8,
+                color=ACCENT,
+                align="top_right",
+            ),
         ]
-        for index in range(3):
-            label = labels[controls[index]] if index < len(controls) else ""
-            elements.append(
-                text_element(
-                    f"front_text_{index}",
-                    label,
-                    (18, 35, 52)[index],
-                    0,
-                    color=ACCENT if index == self.control else MUTED,
-                )
-            )
         elements.extend(
             [
-                text_element(
-                    "front_text_3",
-                    self.control_value(),
-                    19,
-                    8,
-                    font="small",
-                    color=ACCENT if self.navigation == "edit" else WHITE,
-                ),
                 types.ImageElement(
                     id="back_icon",
                     display=types.DisplayName.BACK,
@@ -497,7 +513,7 @@ class App:
                 ),
                 text_element(
                     "back_state",
-                    f"{labels[controls[self.control]]}  ·  {self.control_value()}",
+                    f"{back_labels[selected_control]}  ·  {self.control_value()}",
                     58,
                     47,
                     display=types.DisplayName.BACK,
