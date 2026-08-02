@@ -17,15 +17,15 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import binascii
 import os
-import struct
-import zlib
+import re
 from dataclasses import dataclass
 from typing import Any
 
 import requests
+import resvg_py
 from busylib import AsyncBusyBar, exceptions, types
+from material_design_icons_pack import get_icon
 
 APP = "home-assistant"
 ACCENT = "#63E6BEFF"
@@ -42,30 +42,13 @@ COLOR_PRESETS: tuple[tuple[str, tuple[int, int, int]], ...] = (
     ("VIOLET", (167, 139, 250)),
 )
 
-LIGHT_BITMAP = (
-    ".....####.....",
-    "...##....##...",
-    "..#........#..",
-    ".#..........#.",
-    ".#..........#.",
-    "..#........#..",
-    "...##....##...",
-    "....#....#....",
-    ".....#..#.....",
-    ".....####.....",
-    "....######....",
-    "....#....#....",
-    ".....####.....",
-    "..............",
-)
-
-
 @dataclass
 class Light:
     """Small, mutable view of a Home Assistant light state."""
 
     entity_id: str
     name: str
+    icon_name: str
     is_on: bool
     brightness: int
     rgb: tuple[int, int, int]
@@ -85,32 +68,38 @@ class Light:
         return tuple(controls)
 
 
-def _chunk(kind: bytes, data: bytes) -> bytes:
-    return (
-        struct.pack(">I", len(data))
-        + kind
-        + data
-        + struct.pack(">I", binascii.crc32(kind + data) & 0xFFFFFFFF)
-    )
+_SAFE_ASSET = re.compile(r"[^a-z0-9_-]+")
 
 
-def icon_png(size: int, color: tuple[int, int, int]) -> bytes:
-    """Render the built-in transparent bulb bitmap as a tiny RGBA PNG."""
-    rows = bytearray()
-    for y in range(size):
-        rows.append(0)
-        source_y = min(13, y * 14 // size)
-        for x in range(size):
-            source_x = min(13, x * 14 // size)
-            alpha = 255 if LIGHT_BITMAP[source_y][source_x] == "#" else 0
-            rows.extend((*color, alpha))
-    header = struct.pack(">IIBBBBB", size, size, 8, 6, 0, 0, 0)
-    return (
-        b"\x89PNG\r\n\x1a\n"
-        + _chunk(b"IHDR", header)
-        + _chunk(b"IDAT", zlib.compress(bytes(rows), 9))
-        + _chunk(b"IEND", b"")
-    )
+def normalize_icon_name(icon_name: str) -> str:
+    candidate = icon_name.lower().strip()
+    if candidate.startswith("mdi:") and get_icon(candidate.removeprefix("mdi:")):
+        return candidate
+    return "mdi:lightbulb"
+
+
+def icon_asset_name(icon_name: str) -> str:
+    normalized = normalize_icon_name(icon_name).replace(":", "_")
+    return _SAFE_ASSET.sub("_", normalized).strip("_")
+
+
+def icon_png(icon_name: str, size: int, color: str) -> bytes:
+    """Rasterize the entity's actual Home Assistant MDI icon."""
+    icon = get_icon(normalize_icon_name(icon_name).removeprefix("mdi:"))
+    assert icon is not None
+    svg = icon.svg.replace("<path ", f'<path fill="{color[:7]}" ')
+    return resvg_py.svg_to_bytes(svg_string=svg, width=size, height=size)
+
+
+def icon_color(icon_name: str) -> str:
+    slug = normalize_icon_name(icon_name).removeprefix("mdi:")
+    if any(word in slug for word in ("light", "lamp", "ceiling")):
+        return "#FFD518"
+    return "#63E6BE"
+
+
+def icon_path(light: Light, variant: str) -> str:
+    return f"ha-{icon_asset_name(light.icon_name)}-{variant}.png"
 
 
 def parse_args() -> argparse.Namespace:
@@ -179,6 +168,7 @@ def light_from_state(state: dict[str, Any]) -> Light:
     return Light(
         entity_id=state["entity_id"],
         name=str(attrs.get("friendly_name") or state["entity_id"].split(".", 1)[1]),
+        icon_name=normalize_icon_name(str(attrs.get("icon") or "mdi:lightbulb")),
         is_on=state.get("state") == "on",
         brightness=round(int(attrs.get("brightness") or 0) * 100 / 255),
         rgb=tuple(int(channel) for channel in raw_rgb[:3]),
@@ -195,6 +185,7 @@ def demo_lights() -> list[Light]:
         Light(
             "light.studio",
             "Studio Lamp",
+            "mdi:lightbulb",
             True,
             72,
             COLOR_PRESETS[0][1],
@@ -207,6 +198,7 @@ def demo_lights() -> list[Light]:
         Light(
             "light.desk",
             "Desk Light",
+            "mdi:desk-lamp",
             True,
             45,
             COLOR_PRESETS[2][1],
@@ -219,6 +211,7 @@ def demo_lights() -> list[Light]:
         Light(
             "light.lounge",
             "Lounge",
+            "mdi:floor-lamp",
             False,
             0,
             COLOR_PRESETS[3][1],
@@ -231,6 +224,7 @@ def demo_lights() -> list[Light]:
         Light(
             "light.bedroom",
             "Bedroom",
+            "mdi:ceiling-light",
             True,
             28,
             COLOR_PRESETS[1][1],
@@ -243,6 +237,7 @@ def demo_lights() -> list[Light]:
         Light(
             "light.hall",
             "Hall",
+            "mdi:wall-sconce-flat",
             False,
             0,
             COLOR_PRESETS[0][1],
@@ -317,13 +312,22 @@ class App:
         await self.upload_icons()
 
     async def upload_icons(self) -> None:
-        assets = {
-            "ha-light-active.png": icon_png(14, (99, 230, 190)),
-            "ha-light-inactive.png": icon_png(14, (168, 178, 195)),
-            "ha-light-control.png": icon_png(14, (255, 255, 255)),
-            "ha-light-back.png": icon_png(40, (255, 255, 255)),
-            "ha-blank.png": icon_png(1, (0, 0, 0)),
-        }
+        assets = {}
+        for icon_name in {light.icon_name for light in self.lights}:
+            stem = icon_asset_name(icon_name)
+            active = icon_color(icon_name)
+            assets.update(
+                {
+                    f"ha-{stem}-active.png": icon_png(icon_name, 14, active),
+                    f"ha-{stem}-inactive.png": icon_png(icon_name, 14, "#7080A0"),
+                    f"ha-{stem}-back.png": icon_png(icon_name, 40, "#FFFFFF"),
+                }
+            )
+        assets["ha-blank.png"] = resvg_py.svg_to_bytes(
+            svg_string='<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"/>',
+            width=1,
+            height=1,
+        )
         for filename, data in assets.items():
             await self.client.assets_upload(APP, filename, data)
 
@@ -353,9 +357,9 @@ class App:
                         x=slot * 18 + 2,
                         y=1,
                         path=(
-                            "ha-light-active.png"
+                            icon_path(window[slot], "active")
                             if active
-                            else "ha-light-inactive.png"
+                            else icon_path(window[slot], "inactive")
                             if slot < len(window)
                             else "ha-blank.png"
                         ),
@@ -372,7 +376,7 @@ class App:
                         display=types.DisplayName.BACK,
                         x=8,
                         y=15,
-                        path="ha-light-back.png",
+                        path=icon_path(light, "back"),
                     ),
                     text_element(
                         "back_kicker",
@@ -438,7 +442,7 @@ class App:
                 display=types.DisplayName.FRONT,
                 x=1,
                 y=1,
-                path="ha-light-active.png" if light.is_on else "ha-light-inactive.png",
+                path=icon_path(light, "active" if light.is_on else "inactive"),
             ),
             *[
                 types.ImageElement(
@@ -489,7 +493,7 @@ class App:
                     display=types.DisplayName.BACK,
                     x=8,
                     y=15,
-                    path="ha-light-back.png",
+                    path=icon_path(light, "back"),
                 ),
                 text_element(
                     "back_kicker",
