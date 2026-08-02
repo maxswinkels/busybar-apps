@@ -17,8 +17,8 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import hashlib
 import os
-import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -68,9 +68,6 @@ class Light:
         return tuple(controls)
 
 
-_SAFE_ASSET = re.compile(r"[^a-z0-9_-]+")
-
-
 def normalize_icon_name(icon_name: str) -> str:
     candidate = icon_name.lower().strip()
     if candidate.startswith("mdi:") and get_icon(candidate.removeprefix("mdi:")):
@@ -78,9 +75,10 @@ def normalize_icon_name(icon_name: str) -> str:
     return "mdi:lightbulb"
 
 
-def icon_asset_name(icon_name: str) -> str:
-    normalized = normalize_icon_name(icon_name).replace(":", "_")
-    return _SAFE_ASSET.sub("_", normalized).strip("_")
+def icon_asset_token(icon_name: str) -> str:
+    return hashlib.blake2s(
+        normalize_icon_name(icon_name).encode(), digest_size=5
+    ).hexdigest()
 
 
 def icon_png(icon_name: str, size: int, color: str) -> bytes:
@@ -99,7 +97,8 @@ def icon_color(icon_name: str) -> str:
 
 
 def icon_path(light: Light, variant: str) -> str:
-    return f"ha-{icon_asset_name(light.icon_name)}-{variant}.png"
+    code = {"active": "a", "inactive": "i", "back": "b"}[variant]
+    return f"ha_{code}_{icon_asset_token(light.icon_name)}.png"
 
 
 def parse_args() -> argparse.Namespace:
@@ -314,13 +313,13 @@ class App:
     async def upload_icons(self) -> None:
         assets = {}
         for icon_name in {light.icon_name for light in self.lights}:
-            stem = icon_asset_name(icon_name)
+            token = icon_asset_token(icon_name)
             active = icon_color(icon_name)
             assets.update(
                 {
-                    f"ha-{stem}-active.png": icon_png(icon_name, 14, active),
-                    f"ha-{stem}-inactive.png": icon_png(icon_name, 14, "#7080A0"),
-                    f"ha-{stem}-back.png": icon_png(icon_name, 40, "#FFFFFF"),
+                    f"ha_a_{token}.png": icon_png(icon_name, 14, active),
+                    f"ha_i_{token}.png": icon_png(icon_name, 14, "#7080A0"),
+                    f"ha_b_{token}.png": icon_png(icon_name, 40, "#FFFFFF"),
                 }
             )
         assets["ha-blank.png"] = resvg_py.svg_to_bytes(
