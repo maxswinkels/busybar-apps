@@ -1,0 +1,4 @@
+busylib==1.0.0
+material-design-icons-pack==7.4.47
+requests>=2.32.0,<3
+resvg_py==0.3.3

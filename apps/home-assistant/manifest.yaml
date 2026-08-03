@@ -1,0 +1,9 @@
+name: Home Assistant
+author: kylewhirl
+description: Browse and control Home Assistant lights with the BUSY Bar dial, Select, and Start controls.
+tags:
+  - home
+  - monitor
+  - info
+preview: ./preview.png
+repo: https://github.com/kylewhirl/busybar-home-assistant
