@@ -31,11 +31,18 @@ BRIGHT = "#F0F0DCFF"
 DIM = "#6C6C63FF"
 LED_COLOR = "#F0F0DCFF"
 
-# Layout for the 5px-tall small font, two lines, no separator. On the real bar the
-# small-font ink sits ~1-2px lower than its nominal y (lower than the emulator), so
-# the whole block is nudged up one pixel: line 1 at y=-1 lands on ink rows 1-5 and
-# line 2 at y=8 on rows 10-14, sitting at top and bottom with a roomy gap between.
-Y_LINE1 = -1
+# Layout for the 5px-tall small font, two lines, no separator. The small-font ink
+# sits ~2px lower than its nominal y on the bar, so line 1 at y=0 lands on ink rows
+# 2-6 and line 2 at y=8 on rows 10-14, centring the block a little better than the
+# bottom-flush y=9.
+#
+# Trade-off (intentional, do not "fix"): the bar plays a 1px settle animation
+# whenever a text element's content changes (altitude updates every poll). That
+# settle is hidden only when the ink is flush to the bottom edge (y=9), where the
+# extra frame clips off-screen; at y=8 it shows as a small 1px bounce on the bottom
+# line. y=8 is chosen deliberately for the better vertical centring, accepting the
+# bounce. The draw API exposes no field to disable the animation.
+Y_LINE1 = 0
 Y_LINE2 = 8
 # The device font carries a 1px right-side bearing (advance = ink + 1). Anchoring
 # right-aligned text one column past the 72px width lands the ink flush to the
@@ -61,6 +68,7 @@ def parse_args():
     p.add_argument("--max-alt", type=int, default=40000, help="flyover altitude ceiling in ft (default: 40000)")
     p.add_argument("--interval", type=float, default=5, help="seconds between polls (default: 5)")
     p.add_argument("--mode", choices=["flyover", "ambient", "arrival"], default="flyover", help="screen behaviour (default: flyover)")
+    p.add_argument("--units", choices=["imperial", "metric"], default="imperial", help="imperial: ft + kt; metric: m/km + km/h (default: imperial)")
     p.add_argument("--show-secs", type=int, default=20, help="arrival: seconds per plane (default: 20)")
     p.add_argument("--hold", type=int, default=30, help="hold seconds after data lost (default: 30)")
     p.add_argument("--cycle-secs", type=int, default=30, help="ambient: rotate planes after N seconds (default: 30)")
@@ -395,19 +403,24 @@ def _get_route(callsign, now, fetch_fn):
 # Formatting helpers
 # ---------------------------------------------------------------------------
 
-def _fmt_alt(alt_ft):
-    """Format altitude for display."""
+def _fmt_alt(alt_ft, units="imperial"):
+    """Format altitude for display (imperial: ft/FL, metric: m/km)."""
     if alt_ft is None:
         return "---"
+    if units == "metric":
+        # Always metres, never km, with a Dutch thousands separator: "10.000m".
+        return f"{round(alt_ft * 0.3048):,}".replace(",", ".") + "m"
     if alt_ft >= 10000:
         return "FL" + str(round(alt_ft / 100))
     return f"{round(alt_ft)}ft"
 
 
-def _fmt_speed(gs):
-    """Format ground speed for display."""
+def _fmt_speed(gs, units="imperial"):
+    """Format ground speed for display (imperial: kt, metric: km/h)."""
     if gs is None:
         return "---"
+    if units == "metric":
+        return f"{round(gs * 1.852)}km/h"
     return f"{round(gs)}kt"
 
 
@@ -435,12 +448,12 @@ def _fmt_route(route):
 # Frame builder
 # ---------------------------------------------------------------------------
 
-def _build_frame(plane, route, tick, mode):
+def _build_frame(plane, route, tick, mode, units="imperial"):
     """Build display frame from plane data.
     Returns list of element dicts."""
     ident = _fmt_ident(plane)
-    alt_str = _fmt_alt(plane["alt_ft"])
-    speed_str = _fmt_speed(plane["gs"])
+    alt_str = _fmt_alt(plane["alt_ft"], units)
+    speed_str = _fmt_speed(plane["gs"], units)
     route_str = _fmt_route(route)
 
     elements = []
@@ -614,7 +627,7 @@ def _tick(loop_state, aircraft, args, now, fetch_route_fn):
             suppressed_hexes[plane_hex] = now + 15 * 60  # 15min suppression
 
     # Draw the frame
-    frame = _build_frame(plane, route, tick, args.mode)
+    frame = _build_frame(plane, route, tick, args.mode, args.units)
     led_color = None
 
     if state != STATE_SHOWING or sel_state["plane"]["hex"] != plane_hex:
@@ -926,6 +939,22 @@ def _run_test(args):
         mark = "ok" if dropped == should_drop else "FAIL"
         print(f"  [{mark}] {name}: dropped={dropped} (expected {should_drop})")
         assert dropped == should_drop, f"ground case failed: {name}"
+
+    # Units: imperial (ft/kt, FL above 10k) vs metric (m/km, km/h).
+    print("units formatting:")
+    unit_cases = [
+        ("imperial low alt", _fmt_alt(2400, "imperial"), "2400ft"),
+        ("imperial flight level", _fmt_alt(37000, "imperial"), "FL370"),
+        ("metric low alt", _fmt_alt(2400, "metric"), "732m"),
+        ("metric high alt (always m)", _fmt_alt(37000, "metric"), "11.278m"),
+        ("metric thousands sep", _fmt_alt(32808, "metric"), "10.000m"),
+        ("imperial speed", _fmt_speed(450, "imperial"), "450kt"),
+        ("metric speed", _fmt_speed(450, "metric"), "833km/h"),
+    ]
+    for name, got, expected in unit_cases:
+        mark = "ok" if got == expected else "FAIL"
+        print(f"  [{mark}] {name}: {got} (expected {expected})")
+        assert got == expected, f"units case failed: {name}"
 
     try:
         run_loop(args, fake_fetch_aircraft_fn, fake_fetch_route_fn, lambda s: time.sleep(0.6))
