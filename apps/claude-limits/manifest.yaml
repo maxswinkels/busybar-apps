@@ -1,0 +1,9 @@
+name: Claude Limits
+author: rbhbokka
+description: Live Claude Code usage — 5-hour session and weekly limit bars with time to reset, an animated Clawd mascot, and a session-activity readout.
+tags:
+  - monitor
+  - info
+  - ai
+preview: ./preview.gif
+repo: https://github.com/rbhbokka/busybar-limits
