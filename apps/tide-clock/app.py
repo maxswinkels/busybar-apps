@@ -41,8 +41,16 @@ def draw(elements, **extra):
         pass
 
 
-def text(txt, x=0, y=0, font="normal", color="0xFFFFFFFF", **kw):
-    return {"type": "text", "text": str(txt), "x": x, "y": y, "font": font, "color": color, **kw}
+_next_element_id = [0]
+
+
+def text(txt, x=0, y=0, font="normal", color="#FFFFFFFF", id=None, **kw):
+    # The real device requires every element to carry an id (the emulator is
+    # more lenient and doesn't enforce this) -- auto-number if not given.
+    if id is None:
+        _next_element_id[0] += 1
+        id = "t%d" % _next_element_id[0]
+    return {"id": id, "type": "text", "text": str(txt), "x": x, "y": y, "font": font, "color": color, **kw}
 
 
 # ---------------------------------------------------------------------------
@@ -50,13 +58,18 @@ def text(txt, x=0, y=0, font="normal", color="0xFFFFFFFF", **kw):
 # ---------------------------------------------------------------------------
 
 def fetch_next_tide():
-    """Returns (kind, height_ft, when) for the next high/low tide, or None
-    on any fetch/parse failure (caller just skips the tide frame that tick)."""
-    today = datetime.date.today().strftime("%Y%m%d")
+    """Returns (kind, height_ft, when_local) for the next high/low tide, or
+    None on any fetch/parse failure (caller just skips the tide frame that
+    tick). Fetches in GMT and compares against an aware UTC "now" so this is
+    correct regardless of the machine's local timezone vs. the station's --
+    a naive local-vs-station-local comparison breaks whenever they differ
+    (e.g. running this in the Netherlands against a US station)."""
+    now_utc = datetime.datetime.now(datetime.timezone.utc)
+    begin_date = now_utc.strftime("%Y%m%d")
     url = (
         "https://api.tidesandcurrents.noaa.gov/api/prod/datagetter"
-        f"?product=predictions&application=busybar_tideclock&begin_date={today}"
-        f"&range=48&datum=MLLW&station={STATION}&time_zone=lst_ldt"
+        f"?product=predictions&application=busybar_tideclock&begin_date={begin_date}"
+        f"&range=48&datum=MLLW&station={STATION}&time_zone=gmt"
         "&units=english&interval=hilo&format=json"
     )
     try:
@@ -66,12 +79,12 @@ def fetch_next_tide():
         return None
 
     predictions = data.get("predictions", [])
-    now = datetime.datetime.now()
     for p in predictions:
-        when = datetime.datetime.strptime(p["t"], "%Y-%m-%d %H:%M")
-        if when >= now:
+        when_utc = datetime.datetime.strptime(p["t"], "%Y-%m-%d %H:%M").replace(
+            tzinfo=datetime.timezone.utc)
+        if when_utc >= now_utc:
             kind = "HIGH" if p["type"] == "H" else "LOW"
-            return kind, float(p["v"]), when
+            return kind, float(p["v"]), when_utc.astimezone()  # display in local tz
     return None
 
 
@@ -105,12 +118,12 @@ def tick():
         if tide is None:
             elements = [text("TIDE N/A", x=36, y=8, font="normal", align="center")]
         else:
-            kind, height, when = tide
+            kind, height, when_local = tide
             elements = [
                 text(f"{kind} {height:.1f}ft", x=36, y=1, font="normal",
-                     color="0x2B7FFFFF", align="top_mid"),
-                text(when.strftime("%-I:%M %p"), x=36, y=9, font="normal",
-                     color="0xFFFFFFFF", align="top_mid"),
+                     color="#2B7FFFFF", align="top_mid"),
+                text(when_local.strftime("%-I:%M %p"), x=36, y=9, font="normal",
+                     color="#FFFFFFFF", align="top_mid"),
             ]
 
     try:
