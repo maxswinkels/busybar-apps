@@ -434,12 +434,21 @@ def _fmt_ident(plane):
 
 
 def _fmt_route(route):
-    """Format route as 'AMS>LHR' or None if unknown."""
+    """Format route as 'AMS>LHR', or None if unknown or a same-airport route.
+
+    adsbdb occasionally returns a flightroute whose origin and destination are the
+    same airport (round-trip / positioning flights, or an incomplete DB record).
+    "LTN>LTN" is meaningless on the bar, so treat it as unknown and let the frame
+    fall back to altitude/speed rather than draw a nonsensical route."""
     if route is None:
         return None
-    origin = route.get("origin_iata") or route.get("origin_icao", "")
-    dest = route.get("dest_iata") or route.get("dest_icao", "")
+    o_iata, o_icao = route.get("origin_iata", ""), route.get("origin_icao", "")
+    d_iata, d_icao = route.get("dest_iata", ""), route.get("dest_icao", "")
+    origin = o_iata or o_icao
+    dest = d_iata or d_icao
     if not origin or not dest:
+        return None
+    if (o_iata and o_iata == d_iata) or (o_icao and o_icao == d_icao) or origin == dest:
         return None
     return f"{origin}>{dest}"
 
@@ -924,6 +933,21 @@ def _run_test(args):
         mark = "ok" if got == expected else "FAIL"
         print(f"  [{mark}] {name}: plausible={got} (expected {expected})")
         assert got == expected, f"plausibility case failed: {name}"
+
+    # Route formatting: a same-airport route (round-trip / positioning flight, or
+    # bad adsbdb data) is hidden so the bar shows altitude/speed instead of "LTN>LTN".
+    print("route formatting:")
+    fmt_cases = [
+        ("normal route", _fmt_route({"origin_iata": "AMS", "dest_iata": "LHR"}), "AMS>LHR"),
+        ("same iata (LTN>LTN)", _fmt_route({"origin_iata": "LTN", "dest_iata": "LTN"}), None),
+        ("same icao (EGGW>EGGW)", _fmt_route({"origin_icao": "EGGW", "dest_icao": "EGGW"}), None),
+        ("icao fallback, different airports", _fmt_route({"origin_icao": "EHAM", "dest_icao": "EGLL"}), "EHAM>EGLL"),
+        ("missing destination", _fmt_route({"origin_iata": "AMS"}), None),
+    ]
+    for name, got, expected in fmt_cases:
+        mark = "ok" if got == expected else "FAIL"
+        print(f"  [{mark}] {name}: {got} (expected {expected})")
+        assert got == expected, f"route format case failed: {name}"
 
     # Ground filter: "ground" string and non-positive baro altitude are dropped;
     # a genuinely airborne low plane is kept.
