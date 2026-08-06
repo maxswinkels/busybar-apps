@@ -82,11 +82,12 @@ The site uses [Astro](https://astro.build) content collections to validate every
 
 ## Related projects
 
-- **[busybar-emulator](https://github.com/maxswinkels/busybar-emulator)**: build and test apps locally with a faithful HTTP API, fonts, and pixel-perfect rendering
-- **[busy.app](https://busy.app)**: the real hardware and official apps from Flipper Devices
+- **[busybar-manager](https://github.com/maxswinkels/busybar-manager)**: run apps on your bar. A local manager that installs, schedules and proxies 72×16 apps to a BUSY Bar (or the emulator), with autostart and a web dashboard.
+- **[busybar-emulator](https://github.com/maxswinkels/busybar-emulator)**: the device. A faithful local BUSY Bar with the same HTTP API, fonts and pixels, to build and test apps against without hardware.
+- **[busy.app](https://busy.app)**: the real hardware and official apps from Flipper Devices.
 
 ## License
 
-Code is [MIT](LICENSE). All apps in this gallery are submitted under MIT (license badge appears on submission).
+Code is [MIT](LICENSE). All apps in this gallery are submitted under MIT (license badge appears on submission). Bundled BUSY logo, app icon and device artwork are © Flipper Devices, from the open-source [firmware](https://github.com/busy-app/busybar-firmware) under CC-BY 4.0. See [docs/ATTRIBUTION.md](docs/ATTRIBUTION.md) for the details.
 
 "BUSY Bar" is a trademark of Flipper Devices. This project is unaffiliated and unofficial.
