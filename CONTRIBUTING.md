@@ -162,7 +162,7 @@ A visual preview of your app in action.
 
 ### `requirements.txt` (optional)
 
-Only for apps with dependencies: standard pip format, one package per line (e.g. `busylib>=1.0`). Leave it out entirely for stdlib-only apps; its absence is what earns the zero-install badge. Users install once with `pip install -r requirements.txt`; the [emulator](https://github.com/maxswinkels/busybar-emulator)'s Apps tab creates a virtualenv from it automatically.
+Only for apps with dependencies: standard pip format, one package per line (e.g. `busylib>=1.0`). Leave it out entirely for stdlib-only apps; its absence is what earns the zero-install badge. Users install once with `pip install -r requirements.txt`; [busybar-manager](https://github.com/maxswinkels/busybar-manager) creates the virtualenv from it automatically when it runs your app.
 
 ## Step 4: Test your submission
 
