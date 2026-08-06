@@ -119,8 +119,10 @@ class UsageError(Exception):
     """A transient failure - keep showing the last good snapshot."""
 
 
-def _parse_resets(raw: str) -> datetime:
+def _parse_resets(raw: str | None) -> datetime:
     """Parse a resets_at timestamp into a tz-aware UTC datetime (3.9-safe)."""
+    if raw is None:
+        return datetime.now(timezone.utc)
     if raw.endswith("Z"):
         raw = raw[:-1] + "+00:00"
     dt = datetime.fromisoformat(raw)
@@ -163,7 +165,7 @@ def fetch_usage(token: str) -> UsageSnapshot:
         week = data["seven_day"]
         return UsageSnapshot(
             five_pct=float(five["utilization"]),
-            five_resets=_parse_resets(five["resets_at"]),
+            five_resets=_parse_resets(five["resets_at"]) or (datetime.now(timezone.utc) + timedelta(hours=5)),
             week_pct=float(week["utilization"]),
             week_resets=_parse_resets(week["resets_at"]),
             fetched_at=time.time(),
