@@ -109,21 +109,33 @@ CLOCK_SECONDS = 5
 
 
 def tick():
+    # Two fixed, stable ids ("line1"/"line2") reused every frame -- the
+    # firmware treats a redraw with the same id as an update, but a fresh id
+    # each frame just keeps piling up new elements until the device hits
+    # "Elements number limit exceeded" and rejects the draw entirely. When a
+    # view only needs one line, the other id is still sent, just blank, so
+    # nothing from a previous view lingers on screen.
     phase = int(time.time()) % CYCLE_SECONDS
     if phase < CLOCK_SECONDS:
         hhmm = time.strftime("%H:%M:%S", time.localtime())
-        elements = [text(hhmm, x=36, y=15, font="extra_large", align="bottom_mid")]
+        elements = [
+            text(hhmm, x=36, y=15, font="extra_large", align="bottom_mid", id="line1"),
+            text("", x=36, y=9, font="normal", align="top_mid", id="line2"),
+        ]
     else:
         tide = get_next_tide()
         if tide is None:
-            elements = [text("TIDE N/A", x=36, y=8, font="normal", align="center")]
+            elements = [
+                text("TIDE N/A", x=36, y=8, font="normal", align="center", id="line1"),
+                text("", x=36, y=9, font="normal", align="top_mid", id="line2"),
+            ]
         else:
             kind, height, when_local = tide
             elements = [
                 text(f"{kind} {height:.1f}ft", x=36, y=1, font="normal",
-                     color="#2B7FFFFF", align="top_mid"),
+                     color="#2B7FFFFF", align="top_mid", id="line1"),
                 text(when_local.strftime("%-I:%M %p"), x=36, y=9, font="normal",
-                     color="#FFFFFFFF", align="top_mid"),
+                     color="#FFFFFFFF", align="top_mid", id="line2"),
             ]
 
     try:
