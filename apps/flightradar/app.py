@@ -3,6 +3,16 @@
 
     python app.py                        # BUSY Bar over USB (always 10.0.4.20)
     python app.py --host 127.0.0.1:8080  # emulator or a Wi-Fi bar
+    python app.py --route off            # never show a route, only altitude + speed
+    python app.py --route always         # show every guessed route, warts and all
+
+Route disclaimer: ADS-B does not broadcast where a flight came from or where it is
+going. The origin and destination shown here are an educated guess: adsbdb matches
+the callsign against a schedule database, which is right most of the time but wrong
+for a slice of traffic (overflights, re-used callsigns, charters, stale records).
+--route auto (the default) drops a guess that contradicts the plane's real position
+and heading and falls back to altitude + speed; --route always keeps the guess even
+then; --route off never guesses at all.
 """
 import argparse
 import json
@@ -69,6 +79,11 @@ def parse_args():
     p.add_argument("--interval", type=float, default=5, help="seconds between polls (default: 5)")
     p.add_argument("--mode", choices=["flyover", "ambient", "arrival"], default="flyover", help="screen behaviour (default: flyover)")
     p.add_argument("--units", choices=["imperial", "metric"], default="imperial", help="imperial: ft + kt; metric: m/km + km/h (default: imperial)")
+    p.add_argument("--route", choices=["auto", "always", "off"], default="auto",
+                   help="origin/destination display. Routes are guessed from the callsign, "
+                        "not broadcast by the aircraft. auto: hide a guess that contradicts the "
+                        "plane's position/heading; always: show every guess; off: never show a "
+                        "route, only altitude and speed (default: auto)")
     p.add_argument("--show-secs", type=int, default=20, help="arrival: seconds per plane (default: 20)")
     p.add_argument("--hold", type=int, default=30, help="hold seconds after data lost (default: 30)")
     p.add_argument("--cycle-secs", type=int, default=30, help="ambient: rotate planes after N seconds (default: 30)")
@@ -433,6 +448,32 @@ def _fmt_ident(plane):
     return plane["hex"].upper()
 
 
+def _resolve_route(plane, route, route_mode):
+    """Apply the route display mode to a looked-up route.
+
+    off: never show a route. always: show whatever adsbdb returned, even when it
+    contradicts the plane. auto: drop a route that clearly cannot belong to this
+    plane. Returns the route to draw, or None."""
+    if route is None or route_mode == "off":
+        return None
+    if route_mode == "auto" and not _route_plausible(plane, route):
+        return None
+    return route
+
+
+def _route_disclaimer(route_mode):
+    """One-line note about what the route on screen actually means."""
+    if route_mode == "off":
+        return "route: off, showing altitude + speed only (no origin/destination guessing)"
+    if route_mode == "always":
+        return ("route: always. ADS-B does not broadcast origin/destination, so routes are "
+                "guessed from the callsign and can be wrong. Use --route auto or --route off "
+                "if that bothers you.")
+    return ("route: auto. ADS-B does not broadcast origin/destination, so routes are guessed "
+            "from the callsign; guesses that contradict the plane's position/heading are "
+            "hidden. Use --route always to see them anyway, --route off to never guess.")
+
+
 def _fmt_route(route):
     """Format route as 'AMS>LHR', or None if unknown or a same-airport route.
 
@@ -598,8 +639,10 @@ def _tick(loop_state, aircraft, args, now, fetch_route_fn):
     plane = new_sel_state["plane"]
 
     # Enrich the selected plane's route (cached; network throttled inside).
+    # --route off skips the lookup entirely: no guess, no network call.
     route = None
-    if plane["callsign"]:
+    route_mode = getattr(args, "route", "auto")
+    if route_mode != "off" and plane["callsign"]:
         try:
             route, _ = _get_route(plane["callsign"], now, fetch_route_fn)
         except Exception as e:
@@ -607,15 +650,17 @@ def _tick(loop_state, aircraft, args, now, fetch_route_fn):
             if msg != last_error:
                 print(f"route fetch error: {e}")
                 last_error = msg
-        # adsbdb can hand back a stale/wrong route for the callsign; drop it when
-        # it doesn't fit the plane's real position/heading, so the bar shows
-        # altitude/speed instead of a wrong origin/destination.
-        if route is not None and not _route_plausible(plane, route):
+        # adsbdb can hand back a stale/wrong route for the callsign; in auto mode
+        # drop it when it doesn't fit the plane's real position/heading, so the bar
+        # shows altitude/speed instead of a wrong origin/destination. --route always
+        # keeps the guess: some people would rather see a mostly-right route than none.
+        resolved = _resolve_route(plane, route, route_mode)
+        if resolved is None and route is not None:
             msg = f"route {_fmt_route(route)} implausible for {_fmt_ident(plane)}, hiding"
             if msg != last_error:
                 print(msg)
                 last_error = msg
-            route = None
+        route = resolved
 
     # Check arrival mode suppression
     plane_hex = plane["hex"]
@@ -735,7 +780,8 @@ def main():
         _run_test(args)
         return
 
-    print(f"flightradar -> {_base(args.host)}  lat={args.lat} lon={args.lon}  mode={args.mode}  (Ctrl-C to stop)")
+    print(f"flightradar -> {_base(args.host)}  lat={args.lat} lon={args.lon}  mode={args.mode}  route={args.route}  (Ctrl-C to stop)")
+    print(_route_disclaimer(args.route))
 
     try:
         run_loop(args, _fetch_aircraft, _fetch_route, time.sleep)
@@ -889,7 +935,8 @@ def _run_test(args):
         else:
             raise RuntimeError("unknown route")
 
-    print(f"flightradar test -> {_base(args.host)}  lat={args.lat} lon={args.lon}  mode={args.mode}")
+    print(f"flightradar test -> {_base(args.host)}  lat={args.lat} lon={args.lon}  mode={args.mode}  route={args.route}")
+    print(_route_disclaimer(args.route))
 
     # Demonstrate route lookup + negative caching with spaced fake timestamps.
     global _last_route_net
@@ -933,6 +980,28 @@ def _run_test(args):
         mark = "ok" if got == expected else "FAIL"
         print(f"  [{mark}] {name}: plausible={got} (expected {expected})")
         assert got == expected, f"plausibility case failed: {name}"
+
+    # Route display mode: off never shows a route, always shows even an implausible
+    # one, auto keeps the plausibility filter.
+    print("route mode:")
+    bad_plane = dict(lat=52.4, lon=4.9, track=90, alt_ft=32000)
+    bad_route = _rt(LGW, DUB)   # wrong-way, rejected by the plausibility check
+    good_plane = dict(lat=51.0, lon=6.0, track=320, alt_ft=20000)
+    good_route = _rt(FRA, AMS)
+    mode_cases = [
+        ("off hides a good route", good_plane, good_route, "off", False),
+        ("off hides a bad route", bad_plane, bad_route, "off", False),
+        ("auto keeps a good route", good_plane, good_route, "auto", True),
+        ("auto hides a bad route", bad_plane, bad_route, "auto", False),
+        ("always keeps a good route", good_plane, good_route, "always", True),
+        ("always keeps a bad route", bad_plane, bad_route, "always", True),
+    ]
+    for name, plane, rte, mode, expect_shown in mode_cases:
+        shown = _resolve_route(plane, rte, mode) is not None
+        mark = "ok" if shown == expect_shown else "FAIL"
+        print(f"  [{mark}] {name}: shown={shown} (expected {expect_shown})")
+        assert shown == expect_shown, f"route mode case failed: {name}"
+    assert _resolve_route(good_plane, None, "always") is None, "no route stays no route"
 
     # Route formatting: a same-airport route (round-trip / positioning flight, or
     # bad adsbdb data) is hidden so the bar shows altitude/speed instead of "LTN>LTN".
