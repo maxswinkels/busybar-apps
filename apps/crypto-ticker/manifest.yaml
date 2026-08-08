@@ -1,0 +1,8 @@
+name: Crypto Ticker
+author: itsTylerIRL
+description: Live crypto prices on the LED matrix -- logo, price and 24h change per coin, with a top-button pause and wheel scrubbing. Prices from CoinGecko.
+tags:
+  - crypto
+  - finance
+  - info
+preview: ./preview.gif

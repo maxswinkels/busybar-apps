@@ -3,7 +3,9 @@
 
     python app.py                        # BUSY Bar over USB (always 10.0.4.20)
     python app.py --host 127.0.0.1:8080  # emulator or a Wi-Fi bar
+    python app.py --no-seconds           # show HH:MM only, hide the seconds
 """
+import argparse
 import json
 import sys
 import time
@@ -18,14 +20,19 @@ APP = "clock"
 # emulator. Full API docs are served by the device: http://10.0.4.20/docs
 # ---------------------------------------------------------------------------
 
-def _host(default="10.0.4.20"):
-    if "--host" in sys.argv:
-        i = sys.argv.index("--host")
-        if i + 1 < len(sys.argv):
-            return sys.argv[i + 1]
-    return default
+# argparse so busybar-manager can auto-discover options by parsing --help.
+# --no-seconds is a store_true (no metavar), which the manager exposes as a toggle.
+def _args():
+    p = argparse.ArgumentParser(description="Clock widget for BUSY Bar")
+    p.add_argument("--host", default="10.0.4.20")
+    p.add_argument("--no-seconds", action="store_true", help="show HH:MM only, hide the seconds")
+    return p.parse_args()
 
-BASE = "http://" + _host().replace("http://", "").rstrip("/")
+_ARGS = _args()
+BASE = "http://" + _ARGS.host.replace("http://", "").rstrip("/")
+
+# Time format: drop the seconds with --no-seconds, otherwise show HH:MM:SS.
+TIME_FMT = "%H:%M" if _ARGS.no_seconds else "%H:%M:%S"
 
 def draw(elements, **extra):
     body = {"application_name": APP, "elements": elements, **extra}
@@ -44,7 +51,7 @@ def text(txt, x=0, y=0, font="normal", color="#FFFFFFFF", **kw):
 # ---------------------------------------------------------------------------
 
 def tick():
-    hhmm = time.strftime("%H:%M:%S", time.localtime())
+    hhmm = time.strftime(TIME_FMT, time.localtime())
     try:
         # align lets the device place elements without measuring text width.
         draw([text(hhmm, x=36, y=15, font="extra_large", align="bottom_mid")])
