@@ -158,7 +158,7 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--host", default="10.0.4.20",
                    help="bar address; USB default, emulator: 127.0.0.1:8080")
-    p.add_argument("--mode", metavar="NAME", choices=KNOWN_THEMES + ["off"],
+    p.add_argument("--mode", default="busy", choices=KNOWN_THEMES + ["off"],
                    help="'busy' for the BUSY profile, 'off' to stop, or a theme "
                         "name to run the CUSTOM profile with that theme")
     p.add_argument("--list", action="store_true",
