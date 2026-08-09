@@ -1,0 +1,7 @@
+name: Text Display
+author: LuisWollenschneider
+description: Show any text in the extra_large font, centered, scrolling automatically when it is too long.
+tags:
+  - info
+  - text
+preview: ./preview.gif
