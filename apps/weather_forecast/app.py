@@ -389,7 +389,7 @@ def forecast_elements(day, index, icons, unit, lang):
     else:
         day_name = tr["weekdays"][day["date"].weekday()]
     top = f"{day_name} {day['high']}°/{day['low']}°{suffix}"
-    bottom = f"{weather_label(day['code'], lang)}  {tr['rain']} {day['rain']}%"
+    bottom = f"{weather_label(day['code'], lang)} | {tr['rain']} {day['rain']}%"
     color = BLUE if kind in ("rain", "snow") else GRAY
     return [
         image_el("icon", icons[kind]),
