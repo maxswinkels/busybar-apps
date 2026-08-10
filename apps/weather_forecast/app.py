@@ -327,8 +327,8 @@ def text_el(el_id, text, x, y, font="small", color=WHITE, align="top_left", widt
     if width is not None:
         e.update({
             "width": width,
-            "scroll_rate": 360,
-            "scroll_start_delay": 700,
+            "scroll_rate": 500,
+            "scroll_start_delay": 1200,
             "scroll_repeat_delay": 1200,
         })
     return e
