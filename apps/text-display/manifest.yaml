@@ -1,0 +1,7 @@
+name: Text Display
+author: LuisWollenschneider
+description: Show some text. That's it!
+tags:
+  - info
+  - text
+preview: ./preview.gif
