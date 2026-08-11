@@ -120,21 +120,24 @@ def tick():
         hhmm = time.strftime("%H:%M:%S", time.localtime())
         elements = [
             text(hhmm, x=36, y=15, font="extra_large", align="bottom_mid", id="line1"),
-            text("", x=36, y=9, font="normal", align="top_mid", id="line2"),
+            text("", x=36, y=7, font="normal", align="top_mid", id="line2"),
         ]
     else:
         tide = get_next_tide()
         if tide is None:
             elements = [
                 text("TIDE N/A", x=36, y=8, font="normal", align="center", id="line1"),
-                text("", x=36, y=9, font="normal", align="top_mid", id="line2"),
+                text("", x=36, y=7, font="normal", align="top_mid", id="line2"),
             ]
         else:
             kind, height, when_local = tide
+            # y=-1/y=7, not y=1/y=9 -- confirmed against the real device's
+            # framebuffer (GET /api/screen): y=1/y=9 clipped line2's bottom
+            # row and left row 0 dark. y=-1/y=7 renders both lines in full.
             elements = [
-                text(f"{kind} {height:.1f}ft", x=36, y=1, font="normal",
+                text(f"{kind} {height:.1f}ft", x=36, y=-1, font="normal",
                      color="#2B7FFFFF", align="top_mid", id="line1"),
-                text(when_local.strftime("%-I:%M %p"), x=36, y=9, font="normal",
+                text(when_local.strftime("%-I:%M %p"), x=36, y=7, font="normal",
                      color="#FFFFFFFF", align="top_mid", id="line2"),
             ]
 
