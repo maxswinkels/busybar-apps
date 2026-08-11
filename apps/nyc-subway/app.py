@@ -111,27 +111,28 @@ FEED_SUFFIX = {
     "L": "-l", "SI": "-si", "SIR": "-si",
 }
 
-# designator -> (official MTA line color, letter is black, palette override)
-# Letters are white on every line except the yellow N/Q/R/W (MTA convention);
-# G keeps the hand-tuned black-letter look this app inherited.
+# designator -> (official MTA line color, palette override). Every letter is
+# white with the firmware's baked drop shadow (_stamp_letter) — including the
+# yellow N/Q/R/W the MTA prints black: black-on-yellow reads as a hole at LED
+# scale, white-with-shadow doesn't.
 DESIGNATOR_META = {
-    "1": ("#EE352E", False, None), "2": ("#EE352E", False, None),
-    "3": ("#EE352E", False, None),
-    "4": ("#00933C", False, None), "5": ("#00933C", False, None),
-    "6": ("#00933C", False, None),
-    "7": ("#B933AD", False, None),
-    "A": ("#0039A6", False, None), "C": ("#0039A6", False, None),
-    "E": ("#0039A6", False, None),
-    "B": ("#FF6319", False, None), "D": ("#FF6319", False, None),
-    "F": ("#FF6319", False, None), "M": ("#FF6319", False, None),
-    "G": ("#6CBE45", True, "green"),
-    "J": ("#996633", False, None), "Z": ("#996633", False, None),
-    "L": ("#A7A9AC", False, None),
-    "N": ("#FCC30B", True, "yellow"), "Q": ("#FCC30B", True, "yellow"),
-    "R": ("#FCC30B", True, "yellow"), "W": ("#FCC30B", True, "yellow"),
-    "S": ("#808183", False, None),
-    "SIR": ("#0039A6", False, None),
+    "1": ("#EE352E", None), "2": ("#EE352E", None), "3": ("#EE352E", None),
+    "4": ("#00933C", None), "5": ("#00933C", None), "6": ("#00933C", None),
+    "7": ("#B933AD", None),
+    "A": ("#0039A6", None), "C": ("#0039A6", None), "E": ("#0039A6", None),
+    "B": ("#FF6319", None), "D": ("#FF6319", None), "F": ("#FF6319", None),
+    "M": ("#FF6319", None),
+    "G": ("#6CBE45", "green"),
+    "J": ("#996633", None), "Z": ("#996633", None),
+    "L": ("#A7A9AC", None),
+    "N": ("#FCC30B", "yellow"), "Q": ("#FCC30B", "yellow"),
+    "R": ("#FCC30B", "yellow"), "W": ("#FCC30B", "yellow"),
+    "S": ("#808183", None),
+    "SIR": ("#0039A6", None),
 }
+
+# rush-hour express services the MTA marks with a diamond bullet
+EXPRESS_OF = {"6": "6X", "7": "7X", "F": "FX"}
 
 # hand-tuned ramps carried over from the original canal/g apps (the derived
 # formula below approximates these; the originals stay exact)
@@ -152,13 +153,27 @@ def designator(route_id):
         return "S"
     if r in ("SI", "SIR"):
         return "SIR"
-    if r.endswith("X") and r[:-1] in DESIGNATOR_META:
-        return r[:-1]  # 6X/7X express diamonds share the local's art
-    return r
+    return r  # 6X/7X/FX keep their identity and draw as diamonds
+
+
+def base_desig(desig):
+    """6X -> 6: the local a rush-hour express borrows color and letter from."""
+    if desig.endswith("X") and desig[:-1] in DESIGNATOR_META:
+        return desig[:-1]
+    return desig
+
+
+def is_express(desig):
+    return desig != base_desig(desig)
+
+
+def line_color(desig):
+    return DESIGNATOR_META[base_desig(desig)][0]
 
 
 def letter_for(desig):
-    return "S" if desig == "SIR" else desig
+    d = base_desig(desig)
+    return "S" if d == "SIR" else d
 
 
 def feeds_for(route_ids):
@@ -364,34 +379,93 @@ XL_GLYPHS = {
     "Y": ["##...##", "##...##", "##...##", "##...##", "#######", ".######", ".....##", "##...##", "#######", ".#####."],
     "Z": ["######", "######", "....##", "...###", "..###.", ".###..", "###...", "##....", "######", "######"],
 }
+TINY_GLYPHS = {
+    "0": [".#.", "#.#", "#.#", ".#."],
+    "1": [".#.", "##.", ".#.", "###"],
+    "2": ["##.", "..#", "#..", "###"],
+    "3": ["##.", ".##", "..#", "##."],
+    "4": ["..#", "#.#", "###", "..#"],
+    "5": ["###", "#..", "..#", "##."],
+    "6": [".##", "#..", "###", "###"],
+    "7": ["###", "..#", ".#.", "#.."],
+    "8": [".#.", "###", "#.#", ".#."],
+    "9": [".##", "#.#", "###", "..#"],
+    "A": [".#.", "#.#", "###", "#.#"],
+    "B": ["##.", "###", "#.#", "##."],
+    "C": [".##", "#..", "#..", ".##"],
+    "D": ["##.", "#.#", "#.#", "##."],
+    "E": ["###", "##.", "#..", "###"],
+    "F": ["###", "#..", "##.", "#.."],
+    "G": [".##", "#..", "#.#", ".##"],
+    "H": ["#.#", "#.#", "###", "#.#"],
+    "I": ["###", ".#.", ".#.", "###"],
+    "J": ["..#", "..#", "#.#", ".#."],
+    "K": ["#..#", "#.#.", "###.", "#..#"],
+    "L": ["#..", "#..", "#..", "###"],
+    "M": ["#...#", "##.##", "#.#.#", "#...#"],
+    "N": ["#..#", "##.#", "#.##", "#..#"],
+    "O": [".##.", "#..#", "#..#", ".##."],
+    "P": ["##.", "#.#", "##.", "#.."],
+    "Q": [".##.", "#..#", "#..#", ".##.", "..#."],
+    "R": ["##.", "#.#", "##.", "#.#"],
+    "S": [".##", "#..", "..#", "##."],
+    "T": ["###", ".#.", ".#.", ".#."],
+    "U": ["#..#", "#..#", "#..#", ".##."],
+    "V": ["#...#", "#...#", ".#.#.", "..#.."],
+    "W": ["#...#", "#.#.#", "#.#.#", ".#.#."],
+    "X": ["#.#", ".#.", "#.#", "#.#"],
+    "Y": ["#...#", ".#.#.", "..#..", "..#.."],
+    "Z": ["####", "..#.", ".#..", "####"],
+}
 DISK_MASK = [".....#####.....", "...#########...", "..###########..", ".#############.", ".#############.", "###############", "###############", "###############", "###############", "###############", ".#############.", ".#############.", "..###########..", "...#########...", ".....#####....."]
-BULLET_OVERRIDES = {
-    "G": base64.b64decode(
-        "iVBORw0KGgoAAAANSUhEUgAAAA8AAAAPCAYAAAA71pVKAAAA60lEQVR4nGNkwAL2vV3+"
-        "H13MSTiSEV2MBZumXc+X4jTQCckQOKPkrBeGbbhAj/E2sD4wUXDMg2iNMDDBagcj2Nl/"
-        "fv5lQAZTHHczoIOc/a4YYowZO5xQbJ3hsQ9MZ+xwwisGAix/fv5jwAaQxVM2OmCIEa0Z"
-        "F2D5i+ZfGEAWXxx7FM6OXWwNZzOBAgsZI2xGiEXOscAqzrQ85QQjyIkwjOxsGF6ecgJD"
-        "fHnKCUZwPAf2maCE+PqiMxjeCOwzQeGvLzoD0QwCvu2GRCeUzZXnESkMBjwb9AgasL3h"
-        "EmbaRgaulToYhuxuv4KhFgDuTou5PYUPAAAAAABJRU5ErkJggg=="
-    ),
-    "N": base64.b64decode(
-        "iVBORw0KGgoAAAANSUhEUgAAAA8AAAAPCAYAAAA71pVKAAAA6klEQVR4nGNkwAL+v+/7"
-        "jy7GKFjEiC7Ggk3Tr5f9OA1kRDIEzvh8SRrDNlyAV+8pWB+YeHNGimiNMCBi8owR7Oxf"
-        "PxF6payfg+lnRyXxioEA04P94v9//frHAMPIGtDFfiGpA+lj+vXrPwMyRgYKji9RxH6h"
-        "qWVBNhkbUHN/hWIzMmD6+es/AzKGgbNrhRnQwU80tTidDWIfXy6EovkXmlomy8h3jNgC"
-        "DMY/uFAAQ+zXr38MIH3geN49i5/keHZN+wjRDAJbpvARbYBPzidECoOBdX08BA0IKvqC"
-        "mbaRwYoObgxDIiq+YqgFAHdZwW8uVTNcAAAAAElFTkSuQmCC"
-    ),
-    "Q": base64.b64decode(
-        "iVBORw0KGgoAAAANSUhEUgAAAA8AAAAPCAYAAAA71pVKAAAA2klEQVR4nGNkwAL+v+/7"
-        "jy7GKFjEiC7Ggk3Tr5f9OA1kRDIEzvh8SRrDNlyAV+8pWB+YeHNGimiNMCBi8owR7Oxf"
-        "P1H1Slk/Z0AHz45KYogxPtgvjqJTwfElmH6wXxyvGAiw/PqF3cXYxH+hibH8+vUPh+Z/"
-        "BMVYfuKwGZv4T0yb8TvbMvIdTmczgoiDCwVQRO3jP2AYdnChAArfPv4DI1jz7ln8eOPZ"
-        "Ne0jmN49ix9ZDKIZBLZM4SM6ofjkfEKkMBhY18dD0ICgoi+YaRsZrOjgxjAkouIrhloA"
-        "z09jlGYHOTYAAAAASUVORK5CYII="
-    ),
+BULLET_GLYPH_OVERRIDES = {
+    "G": [".#####..", "##...##.", "##......", "##......", "##...###", "##....##", "##...###", ".#####.."],
+    "Q": [".#####.", "##...##", "##...##", "##...##", "##...##", "##..###", ".#####.", ".....##"],
 }
 # --- END GENERATED: GLYPHS ---
+
+# --- BEGIN GENERATED: OFFSETS ---
+# per-icon letter tuning, edited with tools/bullet_editor.py.
+# LETTER_OFFSETS: (dx, dy) nudges from dead center — the Q/G seeds carry
+# the legacy hand alignment. LETTER_SIZES: glyph size override per icon
+# ("tiny" ~3x4 / "bold" 7px / "xl" 10px); defaults are bullet=bold,
+# flash=xl for locals and bold inside the express diamond mark.
+LETTER_OFFSETS = {
+    "bullet": {
+        "7X": (1, 1),
+        "L": (1, 0),
+    },
+    "flash": {},
+}
+LETTER_SIZES = {
+    "bullet": {
+        "1": "xl",
+        "2": "xl",
+        "3": "xl",
+        "4": "xl",
+        "5": "xl",
+        "6": "xl",
+        "7": "xl",
+        "A": "xl",
+        "B": "xl",
+        "C": "xl",
+        "D": "xl",
+        "E": "xl",
+        "F": "xl",
+        "G": "xl",
+        "J": "xl",
+        "L": "xl",
+        "N": "xl",
+        "Q": "xl",
+        "R": "xl",
+        "S": "xl",
+        "SIR": "xl",
+        "W": "xl",
+        "Z": "xl",
+    },
+    "flash": {},
+}
+# --- END GENERATED: OFFSETS ---
 
 
 # ------------------------------------------------------------ station lookup
@@ -483,7 +557,8 @@ def resolve_config(station, direction, routes_csv, stops_csv):
     served = {r for row in matched for r in row[2].split()}
     if want_routes:
         route_ids = want_routes
-        unknown = [r for r in route_ids if designator(r) not in DESIGNATOR_META]
+        unknown = [r for r in route_ids
+                   if base_desig(designator(r)) not in DESIGNATOR_META]
         if unknown:
             raise ConfigError(f"ROUTES {unknown} not recognized",
                               "check ROUTES")
@@ -499,11 +574,18 @@ def resolve_config(station, direction, routes_csv, stops_csv):
         d = designator(r)
         if d not in desigs:
             desigs.append(d)
+    # a station serving the local also sees its rush-hour diamond twin —
+    # build that art up front so 6X/7X/FX arrivals draw as diamonds
+    for d in list(desigs):
+        x = EXPRESS_OF.get(d)
+        if x and x not in desigs:
+            desigs.append(x)
 
     # empty-state wording: a short direction label if the station has one
     # ("Church Av"), otherwise plain uptown/downtown
     label_rows = [r for r in matched
-                  if set(r[2].split()) & {designator(x) for x in route_ids}] \
+                  if set(r[2].split())
+                  & {base_desig(designator(x)) for x in route_ids}] \
         or matched
     labels = [r[3 if suffix == "N" else 4] for r in label_rows]
     short = [l for l in labels if l and len(l) <= 10]
@@ -545,7 +627,7 @@ def _scale(c, k):
 
 
 def palette_for(desig):
-    hexc, _black, key = DESIGNATOR_META[desig]
+    hexc, key = DESIGNATOR_META[base_desig(desig)]
     if key:
         return PALETTES[key]
     base = _hex_rgb(hexc)
@@ -574,42 +656,111 @@ def png_encode(w, h, rows):
             + chunk(b"IEND", b""))
 
 
+# The firmware's glyph drop-shadow ratios, strongest first where they
+# overlap — the same treatment the stock assets give the BUSY wordmark
+# (hardware-verified on the truvo cards): each shadow pixel multiplies
+# whatever it lands on.
+GLYPH_SHADOW = ((0, 1, 0.43), (-1, 0, 0.78), (1, 0, 0.78), (0, 2, 0.76))
+
+# 15x15 rotated square for the rush-hour express diamonds
+DIAMOND_MASK = ["".join("#" if abs(x - 7) + abs(y - 7) <= 7 else "."
+                        for x in range(15)) for y in range(15)]
+
+
+def bullet_glyph(desig):
+    ch = letter_for(desig)
+    return BULLET_GLYPH_OVERRIDES.get(ch, BULLET_GLYPHS[ch])
+
+
+def letter_offset(kind, desig):
+    return LETTER_OFFSETS.get(kind, {}).get(desig, (0, 0))
+
+
+def default_size(kind, desig):
+    if kind == "flash" and not is_express(desig):
+        return "xl"
+    return "bold"
+
+
+def glyph_for(kind, desig):
+    """The glyph at this icon's tuned size; hand-tuned letterforms apply at
+    the default bold size, and a size the font can't do falls back."""
+    size = LETTER_SIZES.get(kind, {}).get(desig, default_size(kind, desig))
+    ch = letter_for(desig)
+    if size == "tiny":
+        table = TINY_GLYPHS
+    elif size == "xl":
+        table = XL_GLYPHS
+    else:
+        return bullet_glyph(desig)
+    return table.get(ch) or bullet_glyph(desig)
+
+
+def _stamp_letter(grid, glyph, x0, y0, inside, extra_ink=()):
+    """Bake a glyph in white with the firmware shadow ratios onto a mutable
+    pixel grid (rows of RGB or RGBA tuples). `inside(x, y)` bounds both ink
+    and shadow, so nothing bleeds off a disk or card."""
+    ink = {(x0 + gx, y0 + gy)
+           for gy, grow in enumerate(glyph)
+           for gx, ch in enumerate(grow) if ch == "#"}
+    ink |= set(extra_ink)
+    ink = {p for p in ink if inside(*p)}
+    shaded = set()
+    for dx, dy, factor in GLYPH_SHADOW:
+        for x, y in ink:
+            tx, ty = x + dx, y + dy
+            if (tx, ty) in ink or (tx, ty) in shaded or not inside(tx, ty):
+                continue
+            c = grid[ty][tx]
+            grid[ty][tx] = tuple(round(v * factor) for v in c[:3]) + c[3:]
+            shaded.add((tx, ty))
+    for x, y in ink:
+        grid[y][x] = (255, 255, 255) + grid[y][x][3:]
+
+
 def make_bullet(desig):
-    """15x15 shaded route disk with the letter/number baked in."""
-    if desig in BULLET_OVERRIDES:  # the hand-tuned N/Q/G art, verbatim
-        return BULLET_OVERRIDES[desig]
+    """15x15 shaded route disk (diamond for expresses) with the letter baked
+    in white over the firmware drop shadow."""
     pal = palette_for(desig)
-    _hexc, black_letter, _key = DESIGNATOR_META[desig]
-    size = len(DISK_MASK)
-    disk_rows = [y for y in range(size) if "#" in DISK_MASK[y]]
-    top, bot = min(disk_rows), max(disk_rows)
+    express = is_express(desig)
+    mask = DIAMOND_MASK if express else DISK_MASK
+    size = len(mask)
+    filled = [y for y in range(size) if "#" in mask[y]]
+    top, bot = min(filled), max(filled)
     px = [[(0, 0, 0, 0)] * size for _ in range(size)]
     for y in range(size):
         for x in range(size):
-            if DISK_MASK[y][x] != "#":
+            if mask[y][x] != "#":
                 continue
-            if y == top or (y == top + 1 and DISK_MASK[top][x] != "#"):
+            if express:
+                # rim light down both upper edges (the diamond's "arc")
+                spec = y <= size // 2 and (y == top or mask[y - 1][x] != "#")
+            else:
+                spec = y == top or (y == top + 1 and mask[top][x] != "#")
+            if spec:
                 c = pal["spec"]  # 1px specular arc following the rim
             else:
                 c = _lerp(pal["top"], pal["bullet_bot"],
                           (y - top) / max(bot - top, 1))
             px[y][x] = (*c, 255)
-    glyph = BULLET_GLYPHS[letter_for(desig)]
+    glyph = glyph_for("bullet", desig)
     gw, gh = len(glyph[0]), len(glyph)
-    x0, y0 = (size - gw) // 2, (size - gh) // 2
-    ink = (0, 0, 0, 255) if black_letter else (255, 255, 255, 255)
-    for gy, grow in enumerate(glyph):
-        for gx, ch in enumerate(grow):
-            if ch == "#" and DISK_MASK[y0 + gy][x0 + gx] == "#":
-                px[y0 + gy][x0 + gx] = ink
+    dx, dy = letter_offset("bullet", desig)
+    _stamp_letter(px, glyph, (size - gw) // 2 + dx, (size - gh) // 2 + dy,
+                  lambda x, y: 0 <= x < size and 0 <= y < size
+                  and mask[y][x] == "#")
     return png_encode(size, size, px)
 
 
-def flash_card(desig):
-    """72x16 shaded field in the line color with the XL letter centered.
-    Returns rows of (r, g, b)."""
+_LEGACY_BLACK = {"G", "N", "Q", "R", "W"}  # parity_check only: the old look
+
+
+def flash_card(desig, legacy=False):
+    """72x16 shaded field in the line color with the letter riding it — the
+    XL letter for locals, the diamond-outline mark for expresses. Returns
+    rows of (r, g, b). `legacy` reproduces the retired black-letter/no-shadow
+    rendering so parity_check can still prove the pipeline byte-exact."""
     pal = palette_for(desig)
-    _hexc, black_letter, _key = DESIGNATOR_META[desig]
     w, h, r = 72, 16, 5
     rows = []
     for y in range(h):
@@ -629,14 +780,40 @@ def flash_card(desig):
             scale = (0.25, 0.5, 0.75)[edge] if edge < 3 else 1.0
             row.append(tuple(round(c * scale) for c in base))
         rows.append(row)
-    glyph = XL_GLYPHS[letter_for(desig)]
+
+    in_card = lambda x, y: 0 <= x < w and 0 <= y < h  # noqa: E731
+
+    if is_express(desig):
+        # the countdown-clock express mark: the bullet's diamond outline
+        # with the small letter inside, centered on the field
+        ox, oy = (w - 15) // 2, 0
+        outline = {
+            (ox + x, oy + y)
+            for y in range(15) for x in range(15)
+            if DIAMOND_MASK[y][x] == "#"
+            and any(not (0 <= y + ey < 15 and 0 <= x + ex < 15
+                         and DIAMOND_MASK[y + ey][x + ex] == "#")
+                    for ex, ey in ((1, 0), (-1, 0), (0, 1), (0, -1)))}
+        glyph = glyph_for("flash", desig)
+        gw, gh = len(glyph[0]), len(glyph)
+        dx, dy = letter_offset("flash", desig)
+        _stamp_letter(rows, glyph, ox + (15 - gw) // 2 + dx,
+                      oy + (15 - gh) // 2 + dy, in_card, extra_ink=outline)
+        return rows
+
+    glyph = (XL_GLYPHS[letter_for(desig)] if legacy
+             else glyph_for("flash", desig))
     gw, gh = len(glyph[0]), len(glyph)
-    x0, y0 = (w - gw) // 2, (h - gh) // 2
-    ink = (0, 0, 0) if black_letter else (255, 255, 255)
-    for gy, grow in enumerate(glyph):
-        for gx, ch in enumerate(grow):
-            if ch == "#":
-                rows[y0 + gy][x0 + gx] = ink
+    dx, dy = letter_offset("flash", desig)
+    x0, y0 = (w - gw) // 2 + dx, (h - gh) // 2 + dy
+    if legacy:
+        ink = (0, 0, 0) if desig in _LEGACY_BLACK else (255, 255, 255)
+        for gy, grow in enumerate(glyph):
+            for gx, ch in enumerate(grow):
+                if ch == "#":
+                    rows[y0 + gy][x0 + gx] = ink
+        return rows
+    _stamp_letter(rows, glyph, x0, y0, in_card)
     return rows
 
 
@@ -644,9 +821,9 @@ def _rgb_bytes(rows):
     return b"".join(bytes(v for px in row for v in px) for row in rows)
 
 
-def flash_anim_frames(desig):
+def flash_anim_frames(desig, legacy=False):
     """Sweep-in (eased), hold, fade-to-black — raw RGB frames."""
-    card = flash_card(desig)
+    card = flash_card(desig, legacy=legacy)
     w = len(card[0])
     black_row = [(0, 0, 0)] * w
     sweep, hold, fade = FLASH_FRAMES
@@ -981,7 +1158,11 @@ def decode_trip_updates(buf, stops, want_desigs):
                                         arr = v5
                     if stop in stops:
                         hits.append(dep or arr)
-            if route_id and designator(route_id) in want_desigs:
+            d = designator(route_id) if route_id else ""
+            # base fallback: an express variant we didn't pre-build (say a
+            # one-off 5X) still counts as its local
+            if route_id and (d in want_desigs
+                             or base_desig(d) in want_desigs):
                 for t in hits:
                     if t:
                         yield t, route_id, trip_id
@@ -1022,11 +1203,20 @@ def fetch_arrivals(cfg):
 
 # ----------------------------------------------------------------- rendering
 
+def asset_desig(assets, route_id):
+    """Art key for an arrival: its own designator when we built art for it,
+    else its local's (a feed can surface an express we didn't pre-build)."""
+    d = designator(route_id)
+    return d if d in assets else base_desig(d)
+
+
 def build_screen(cfg, assets, arrivals, index, offset=0):
     """One arrival card, optionally shifted vertically by `offset` px."""
     els = []
     if not arrivals:
-        routes_label = "/".join(cfg["designators"])
+        routes_label = "/".join(
+            d for d in cfg["designators"] if not is_express(d)) \
+            or "/".join(cfg["designators"])
         els.append({
             "id": "msg", "type": "text",
             "text": f"No {cfg['dir_word']} {routes_label} trains",
@@ -1042,7 +1232,7 @@ def build_screen(cfg, assets, arrivals, index, offset=0):
 
     els.append({
         "id": "bullet", "type": "image",
-        "path": assets[designator(route)]["bullet_name"],
+        "path": assets[asset_desig(assets, route)]["bullet_name"],
         "x": 1, "y": 0 + offset, "timeout": ELEMENT_TIMEOUT,
     })
     if mins == 0:
@@ -1078,7 +1268,7 @@ def build_screen(cfg, assets, arrivals, index, offset=0):
             "id": f"dot{i}", "type": "rectangle",
             "x": 71, "y": i * 2, "width": 1, "height": 1,
             "fill": "solid",
-            "fill_colors": [DESIGNATOR_META[designator(r)][0] + "FF"],
+            "fill_colors": [line_color(designator(r)) + "FF"],
             "border_width": 0, "timeout": ELEMENT_TIMEOUT,
         })
     els.append({
@@ -1224,7 +1414,8 @@ class App:
                 if not await asyncio.to_thread(
                         self.bar.draw,
                         build_flash_anim(self.assets,
-                                         designator(departed_route))):
+                                         asset_desig(self.assets,
+                                                     departed_route))):
                     self.blocked = True
                     return
                 await asyncio.sleep(FLASH_ANIM_SECS)  # device-side 60fps
