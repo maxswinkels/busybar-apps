@@ -1,0 +1,7 @@
+name: Busy Defaults
+author: LuisWollenschneider
+description: "Activates a built-in BUSY Bar mode and releases it on exit. Themes: busy, keep_out, dnd, meeting, on_call, lunch, back_soon, booked, flow, chill_time, on_air, coding, low_social_battery."
+tags:
+    - utility
+    - info
+preview: ./preview.gif

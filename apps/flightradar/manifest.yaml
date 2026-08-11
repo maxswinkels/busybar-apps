@@ -1,6 +1,6 @@
 name: Flightradar
 author: maxswinkels
-description: Quiet until a plane flies over, then a split-flap board shows its callsign, aircraft type, route, and live altitude and speed. Live ADS-B data. Note that ADS-B does not broadcast origin or destination, so the route is an educated guess from the callsign and can be wrong; --route auto hides guesses that contradict the plane's position, --route always shows them anyway, --route off turns routes off entirely.
+description: Quiet until a plane flies over, then a split-flap board shows its callsign, aircraft type, route, and live altitude and speed, from live ADS-B data.
 tags:
   - info
   - monitor
