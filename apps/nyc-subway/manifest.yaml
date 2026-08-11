@@ -1,0 +1,9 @@
+name: NYC Subway
+author: Pranav-Karra-3301
+description: Live next-train departures for any NYC subway station — pick station, direction and lines; MTA route bullets, minutes to train, departure flash. GTFS-realtime, no API key.
+tags:
+  - transit
+  - info
+  - time
+preview: preview.gif
+repo: https://github.com/Pranav-Karra-3301/busybar-nyc-subway
