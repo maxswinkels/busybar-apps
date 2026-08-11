@@ -7,8 +7,8 @@ top row, scrolls its headlines on the bottom row, and rotates between feeds.
 Examples:
     python3 rss-scroller.py
     python3 rss-scroller.py \
-      --feed "ANSA=https://www.ansa.it/sito/ansait_rss.xml" \
-      --feed "BBC=https://feeds.bbci.co.uk/news/rss.xml"
+      --feed "NBC Top News=https://feeds.nbcnews.com/nbcnews/public/news" \
+      --feed "BBC World News=https://feeds.bbci.co.uk/news/rss.xml"
     python3 rss-scroller.py --feed-seconds 20 --refresh 300
     python3 rss-scroller.py --font small --color "#FFFFFFFF"
     python3 rss-scroller.py --title-font tiny --title-color "#888888FF"
@@ -35,7 +35,7 @@ DEFAULT_FEEDS = [
     ("The Guardian World", "https://www.theguardian.com/world/rss"),
 ]
 DEFAULT_REFRESH_SEC = 300
-DEFAULT_FEED_SECONDS = 20
+DEFAULT_FEED_SECONDS = 60
 DEFAULT_MAX_ITEMS = 15
 DEFAULT_MAX_TICKER_CHARS = 500
 DEFAULT_SCROLL_RATE = 1000
