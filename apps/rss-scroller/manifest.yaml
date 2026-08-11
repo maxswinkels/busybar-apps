@@ -1,0 +1,8 @@
+name: RSS Feed Scroller
+author: robynhub
+description: Fetch an RSS feed and show it
+tags:
+  - news
+  - rss
+  - info
+preview: ./preview.png
