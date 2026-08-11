@@ -696,6 +696,21 @@ def describe(stats):
             f"{fmt_full(stats['pulls'])} PRs")
 
 
+def exit_if_missing(repo, exc, token):
+    """Exit 1 on the 404 that means the repository is not there.
+
+    A wrong name never fixes itself, so it is fatal rather than something the
+    first-fetch loop retries. Without a token a private repo 404s too, so the
+    message covers both.
+    """
+    if not (isinstance(exc, urllib.error.HTTPError) and exc.code == 404):
+        return
+    extra = ("" if token else
+             " If it is private, pass --gh-token or set GITHUB_TOKEN.")
+    print(f"error: repository {repo} not found.{extra}", file=sys.stderr)
+    sys.exit(1)
+
+
 def rate_limit_hint(exc):
     """Turn GitHub's opaque 403 into the advice that actually helps."""
     if isinstance(exc, urllib.error.HTTPError) and exc.code in (403, 429):
@@ -797,6 +812,7 @@ def run(args):
                 stats = fetch_stats(args.repo, args.gh_token)
                 break
             except (urllib.error.URLError, OSError, ValueError, KeyError) as exc:
+                exit_if_missing(args.repo, exc, args.gh_token)
                 print(f"  {rate_limit_hint(exc) or f'first fetch failed: {exc}'}")
                 if args.once:
                     return
@@ -902,8 +918,8 @@ def main():
     parser.add_argument("--gh-token", default=os.environ.get("GITHUB_TOKEN"),
                         help="GitHub token (default: $GITHUB_TOKEN). Raises the "
                              "rate limit to 5000/hour and reaches private repos")
-    parser.add_argument("--interval", type=int, default=60,
-                        help="seconds between GitHub polls (default: 60)")
+    parser.add_argument("--interval", type=int, default=300,
+                        help="seconds between GitHub polls (default: 300)")
     parser.add_argument("--no-avatar", action="store_true",
                         help="always draw the initial tile, never fetch the avatar")
     parser.add_argument("--once", action="store_true",
