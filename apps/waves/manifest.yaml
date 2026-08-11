@@ -1,6 +1,6 @@
 name: Waves Simulator
 author: robynhub
-description: A lava-lamp-like ocean animation for the BUSY Bar, featuring colorful, continuously moving waves. The sea smoothly transitions between calm, breezy, moderate, rough, and stormy states, with realistic depth gradients, foam, reflections, and natural motion. Animation speed and sea-state timing are fully configurable.
+description: A lava-lamp-like ocean animation for BUSY Bar, with colorful moving waves, smooth transitions from calm to stormy seas, realistic gradients, foam, reflections, and configurable speed.
 tags:
   - weather
   - screensaver
