@@ -1,0 +1,8 @@
+name: Matrix Digital Rain
+author: robynhub
+description: Matrix-style digital rain animation for BUSY Bar, with configurable character size, speed, density, and color theme.
+tags:
+  - animation
+  - ambient
+  - matrix
+preview: ./preview.gif
