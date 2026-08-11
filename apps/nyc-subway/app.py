@@ -32,6 +32,13 @@ in busybar-manager, put these in a variation's "Environment variables"):
     BUSYBAR_PRIORITY     draw priority, default 1 (visible when the Bar's
                          switch is on OFF; set 30+ to show over the clock)
     BUSYBAR_APP_NAME     application_name override, default "nyc-subway"
+    BUSYBAR_WS           dial stream override: a ws:// URI for the Bar's
+                         status socket. The Bar only serves it on USB, so
+                         when the app runs elsewhere (busybar-manager, a
+                         VPS, the cloud target) forward the USB port over
+                         your tailnet/VPN — see tools/dial_forward.py —
+                         and point this at it, e.g.
+                         ws://100.x.y.z:8760/api/status/ws
 
 With no configuration at all it shows uptown departures at Times Sq-42 St.
 
@@ -43,7 +50,8 @@ Usage:
     python app.py --clear                # clear the display and exit
 
 Dial: over USB the Bar's dial scrolls through upcoming arrivals (needs the
-optional `websockets` package); other transports show the next train.
+optional `websockets` package); other transports show the next train unless
+BUSYBAR_WS points them at a forwarded copy of the USB status socket.
 """
 
 import argparse
@@ -71,6 +79,7 @@ try:
 except ValueError:
     PRIORITY = 1
 APP_NAME = os.environ.get("BUSYBAR_APP_NAME", "nyc-subway")
+WS_OVERRIDE = os.environ.get("BUSYBAR_WS", "")
 
 WHITE = "#FFFFFFFF"
 
@@ -805,11 +814,13 @@ class Bar:
         if host_override:
             # busybar-manager mode: plain HTTP to the manager's proxy, which
             # forwards to the bar (and injects the variation's priority)
-            t = Target("manager", f"http://{host_override}", "/api", {}, None)
+            t = Target("manager", f"http://{host_override}", "/api", {},
+                       WS_OVERRIDE or None)
             r = self.s.get(t.url("/version"), headers=t.headers, timeout=10)
             r.raise_for_status()
             self.t = t
-            print(f"connected via manager proxy at {host_override}")
+            print(f"connected via manager proxy at {host_override}"
+                  f" ({'dial' if t.ws_uri else 'static'} mode)")
             return
         targets = make_targets()
         order = ["usb", "wifi", "cloud"] if TARGET == "auto" else [TARGET]
@@ -824,6 +835,8 @@ class Bar:
                 r = self.s.get(t.url("/version"), headers=t.headers,
                                timeout=3 if name == "usb" else 10)
                 r.raise_for_status()
+                if WS_OVERRIDE:
+                    t.ws_uri = WS_OVERRIDE
                 self.t = t
                 print(f"connected to BUSY Bar via {name}"
                       f" ({'dial' if t.ws_uri else 'static'} mode)")
@@ -1168,6 +1181,17 @@ class App:
                     await asyncio.to_thread(self._push)
                 except requests.RequestException:
                     pass
+                return
+            if self.bar.t.name != "usb":
+                # dial events can arrive over a forwarded socket (BUSYBAR_WS)
+                # while draws still go through the manager/cloud relay, where
+                # per-frame eased pushes stretch into seconds — jump-cut
+                self.index = new_index
+                try:
+                    await asyncio.to_thread(self._push)
+                except requests.RequestException as e:
+                    print(f"[{time.strftime('%H:%M:%S')}] draw error: {e}",
+                          file=sys.stderr)
                 return
             try:
                 sign = 1 if direction >= 0 else -1
