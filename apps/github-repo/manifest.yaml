@@ -1,0 +1,8 @@
+name: GitHub Repo
+author: LuisWollenschneider
+description: Display a single Github-Repo with stars, forks, open issues and open pull requests. Counts flash when they change.
+tags:
+  - info
+  - monitor
+  - github
+preview: ./preview.png
