@@ -17,3 +17,60 @@ jobs:
 
       - run: npm ci
       - run: npm run build
+
+  check:
+    # Advisory: this job reports what busycheck found and never fails the PR.
+    # A submission is not blocked on style, it is discussed.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # Only the apps this PR touches. Running over the whole gallery would bury
+      # the submission's own findings under pre-existing ones.
+      - name: Validate the apps this PR touches
+        id: check
+        run: |
+          git fetch origin "${{ github.base_ref }}" --quiet
+          slugs=$(git diff --name-only "origin/${{ github.base_ref }}...HEAD" -- apps/ \
+                  | cut -d/ -f2 | sort -u)
+          if [ -z "$slugs" ]; then
+            echo "no app folders touched by this PR"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          {
+            echo "### App check"
+            echo
+            echo '```'
+          } > report.md
+          status=0
+          for slug in $slugs; do
+            [ -f "apps/$slug/app.py" ] || continue
+            python3 tools/busycheck.py "$slug" >> report.md 2>&1 || status=1
+          done
+          echo '```' >> report.md
+          if [ "$status" != "0" ]; then
+            {
+              echo
+              echo "These are advisory and do not block the PR."
+              echo "Run \`npm run check -- <slug> --run\` locally to reproduce, and"
+              echo "\`npm run preview -- <slug>\` to regenerate a preview."
+            } >> report.md
+          fi
+          cat report.md >> "$GITHUB_STEP_SUMMARY"
+          echo "${{ github.event.number }}" > pr-number.txt
+
+      - name: Upload the report
+        if: steps.check.outputs.skip != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-check-report
+          path: |
+            report.md
+            pr-number.txt
