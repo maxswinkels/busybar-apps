@@ -431,7 +431,7 @@ class InputListener:
                     print(f"controls: ignored malformed status frame: {exc}")
 
 
-def process_control_events(listener: InputListener, last_wheel_at: float, cooldown: float):
+def process_control_events(listener: InputListener, last_wheel_at: float, cooldown: float, invert_dial: bool = False):
     for event in listener.poll():
         now = time.monotonic()
         if "button_event" in event:
@@ -443,11 +443,14 @@ def process_control_events(listener: InputListener, last_wheel_at: float, cooldo
         elif "encoder_event" in event:
             delta = int(event["encoder_event"].get("delta", 0) or 0)
             if delta and now - last_wheel_at >= cooldown:
-                # Match the physical direction seen from the front of the
-                # BUSY Bar: one direction advances, the opposite goes back.
-                command = "previous" if delta > 0 else "next"
+                # Default mapping follows the physical direction seen from the
+                # front of the BUSY Bar. --invert-dial swaps Next/Previous.
+                forward = delta < 0
+                if invert_dial:
+                    forward = not forward
+                command = "next" if forward else "previous"
                 ok, detail = media_command(command)
-                label = "PREVIOUS" if delta > 0 else "NEXT"
+                label = "NEXT" if forward else "PREVIOUS"
                 print(f"control: {label}" + ("" if ok else f" failed: {detail}"))
                 last_wheel_at = now
     return last_wheel_at
@@ -943,6 +946,7 @@ def main() -> int:
     p.add_argument("--time-color", default=DEFAULT_TIME_COLOR, help="time counter color as #RRGGBB or #RRGGBBAA (default: blue)")
     p.add_argument("--time-separator", default="/", help="separator between elapsed and total time (default: /)")
     p.add_argument("--wheel-cooldown", type=float, default=0.40, help="seconds between wheel track changes (default: 0.40)")
+    p.add_argument("--invert-dial", action="store_true", help="invert rotary encoder direction for Previous/Next")
     args = p.parse_args()
 
     def normalize_color(value: str, option: str) -> str:
@@ -976,7 +980,7 @@ def main() -> int:
         controls = InputListener(args.host, args.token)
         controls.start()
         if controls.available:
-            print("controls: START=play/pause  wheel=previous/next (direct WebSocket)")
+            print("controls: START=play/pause  wheel=previous/next (direct WebSocket)" + (" [inverted]" if args.invert_dial else ""))
         else:
             print(f"controls: unavailable ({controls.error or 'unknown error'})")
 
@@ -984,7 +988,7 @@ def main() -> int:
         while True:
             if controls is not None:
                 last_wheel_at = process_control_events(
-                    controls, last_wheel_at, max(0.0, args.wheel_cooldown)
+                    controls, last_wheel_at, max(0.0, args.wheel_cooldown), args.invert_dial
                 )
             if args.demo:
                 np = demo_frame(time.monotonic() - demo_start)
