@@ -33,7 +33,7 @@ import unicodedata
 from dataclasses import dataclass, asdict
 from typing import Optional
 
-APP = "now-playing"
+APP = "media-player"
 DEFAULT_HOST = "10.0.4.20"
 POLL_INTERVAL = 1.0
 PRIORITY = 30
