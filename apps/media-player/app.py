@@ -730,15 +730,15 @@ def _source_label(np: NowPlaying) -> str:
     return "Now Playing"
 
 
-def _time_counter(np: NowPlaying) -> Optional[str]:
+def _time_counter(np: NowPlaying, separator: str = "/") -> Optional[str]:
     if not np.duration:
         return None
     if np.elapsed_reliable and np.elapsed is not None:
-        return f"{fmt_time(np.elapsed)}/{fmt_time(np.duration)}"
+        return f"{fmt_time(np.elapsed)}{separator}{fmt_time(np.duration)}"
     return fmt_time(np.duration)
 
 
-def _layout_parts(np: NowPlaying, title_color=DEFAULT_TITLE_COLOR, artist_color=DEFAULT_ARTIST_COLOR):
+def _layout_parts(np: NowPlaying, title_color=DEFAULT_TITLE_COLOR, artist_color=DEFAULT_ARTIST_COLOR, time_separator="/"):
     """Return the stable text/layout state for the current Now Playing item.
 
     This deliberately excludes the elapsed *value*: line1/line2 must not be
@@ -764,7 +764,7 @@ def _layout_parts(np: NowPlaying, title_color=DEFAULT_TITLE_COLOR, artist_color=
     artist = np.artist
     source = _source_label(np)
     glyph = _status_glyph(np.state)
-    counter = _time_counter(np)
+    counter = _time_counter(np, time_separator)
 
     line1 = title or f"{glyph} {source}"
     if title and artist:
@@ -784,9 +784,9 @@ def _layout_parts(np: NowPlaying, title_color=DEFAULT_TITLE_COLOR, artist_color=
     }
 
 
-def build_static_elements(np: NowPlaying, title_color=DEFAULT_TITLE_COLOR, artist_color=DEFAULT_ARTIST_COLOR):
+def build_static_elements(np: NowPlaying, title_color=DEFAULT_TITLE_COLOR, artist_color=DEFAULT_ARTIST_COLOR, time_separator="/"):
     """Elements that should only be resent when text/layout actually changes."""
-    lp = _layout_parts(np, title_color, artist_color)
+    lp = _layout_parts(np, title_color, artist_color, time_separator)
     if lp["mode"] == "error":
         return [
             text("line1", lp["line1"], 0, 0, color=lp["line1_color"]),
@@ -806,7 +806,7 @@ def build_static_elements(np: NowPlaying, title_color=DEFAULT_TITLE_COLOR, artis
     ]
 
 
-def build_dynamic_elements(np: NowPlaying, time_color=DEFAULT_TIME_COLOR):
+def build_dynamic_elements(np: NowPlaying, time_color=DEFAULT_TIME_COLOR, time_separator="/"):
     """Counter + timeline, safe to update every second without touching scroll text."""
     if np.error or not np.active:
         return [
@@ -815,7 +815,7 @@ def build_dynamic_elements(np: NowPlaying, time_color=DEFAULT_TIME_COLOR):
             rect("prog", 0, 15, 1, 1, BLACK),
         ]
 
-    counter = _time_counter(np)
+    counter = _time_counter(np, time_separator)
     elements = [
         text("time", counter or "", 72, 8, align="top_right",
              color=time_color if counter else BLACK),
@@ -836,9 +836,9 @@ def build_dynamic_elements(np: NowPlaying, time_color=DEFAULT_TIME_COLOR):
     return elements
 
 
-def static_render_key(np: NowPlaying):
+def static_render_key(np: NowPlaying, time_separator="/"):
     """Anything here changing is allowed to restart text scrolling."""
-    lp = _layout_parts(np)
+    lp = _layout_parts(np, time_separator=time_separator)
     return (
         lp["mode"], lp["line1"], lp["line2"], lp["line1_color"],
         lp["line2_color"], lp["left_width"], lp["counter_width"],
@@ -905,6 +905,7 @@ def main() -> int:
     p.add_argument("--title-color", default=DEFAULT_TITLE_COLOR, help="title color as #RRGGBB or #RRGGBBAA (default: white)")
     p.add_argument("--artist-color", default=DEFAULT_ARTIST_COLOR, help="artist/source color as #RRGGBB or #RRGGBBAA (default: gray)")
     p.add_argument("--time-color", default=DEFAULT_TIME_COLOR, help="time counter color as #RRGGBB or #RRGGBBAA (default: blue)")
+    p.add_argument("--time-separator", default="/", help="separator between elapsed and total time (default: /)")
     p.add_argument("--wheel-cooldown", type=float, default=0.40, help="seconds between wheel track changes (default: 0.40)")
     args = p.parse_args()
 
@@ -921,6 +922,8 @@ def main() -> int:
     args.title_color = normalize_color(args.title_color, "--title-color")
     args.artist_color = normalize_color(args.artist_color, "--artist-color")
     args.time_color = normalize_color(args.time_color, "--time-color")
+    if not args.time_separator or len(args.time_separator) > 3 or any(c in "\r\n\t" for c in args.time_separator):
+        p.error("--time-separator must be 1 to 3 printable characters")
 
     backend, backend_name = choose_backend()
     tracker = ElapsedTracker()
@@ -963,11 +966,11 @@ def main() -> int:
                 # Keep scrolling text and the once-per-second timeline in separate
                 # draw requests. Re-sending a scrolling text element resets the BUSY
                 # Bar's hardware scroll animation, even when its text is unchanged.
-                skey = static_render_key(np)
+                skey = static_render_key(np, args.time_separator)
                 dkey = dynamic_render_key(np)
 
                 if skey != last_static_key:
-                    status, response_body = draw(args.host, build_static_elements(np, args.title_color, args.artist_color))
+                    status, response_body = draw(args.host, build_static_elements(np, args.title_color, args.artist_color, args.time_separator))
                     if status == 409:
                         print("display busy (409); will retry")
                     elif status not in (200, 201, 204):
@@ -977,7 +980,7 @@ def main() -> int:
                         last_static_key = skey
 
                 if dkey != last_dynamic_key:
-                    status, response_body = draw(args.host, build_dynamic_elements(np, args.time_color))
+                    status, response_body = draw(args.host, build_dynamic_elements(np, args.time_color, args.time_separator))
                     if status == 409:
                         print("display busy (409); will retry")
                     elif status not in (200, 201, 204):
