@@ -59,7 +59,9 @@ import asyncio
 import base64
 import hashlib
 import json
+import math
 import os
+import re
 import struct
 import sys
 import time
@@ -97,6 +99,19 @@ SLIDE_IN = (11, 7, 4, 2, 1, 0)           # eased: decelerate into place
 FLASH_FRAMES = (15, 84, 12)  # sweep, hold, fade — the single source of truth
 FPS = 60
 FLASH_ANIM_SECS = sum(FLASH_FRAMES) / FPS
+
+# Service status (Mercury alerts, held trains, track changes) rendered in
+# the firmware's busy-mode plate grammar. BUSYBAR_ALERTS=off disables it.
+ALERTS_ON = os.environ.get("BUSYBAR_ALERTS", "on").lower() not in (
+    "off", "0", "no", "false")
+ALERTS_URL = ("https://api-endpoint.mta.info/Dataservice/mtagtfsfeeds/"
+              "camsys%2Fsubway-alerts.json")
+ALERTS_POLL_SECS = 120
+ALERT_PAGE_EVERY = 75     # seconds between alert-page interruptions
+HELD_AFTER_SECS = 180     # STOPPED_AT with no movement this long = held
+WASH_SECS = 0.6           # the compiled amber wash that covers page swaps
+MARQUEE_RATE = 1400       # px/min for the in-plate headline marquee
+AMBER = "#FFB000FF"
 
 # ------------------------------------------------------------------- routes
 
@@ -936,6 +951,109 @@ def anim_encode(frames, w, h, fps=FPS):
     return bytes(out)
 
 
+# ------------------------------------------------ service-status art
+
+def _plate_ramp(hexc):
+    base = _hex_rgb(hexc)
+    return {
+        "spec": tuple(round(v + (255 - v) * 0.60) for v in base),
+        "top": _scale(base, 1.15),
+        "bot": _scale(base, 0.47),
+        "lift": _scale(base, 0.62),
+    }
+
+
+def make_plate(hexc, hazard=False):
+    """The busy-mode box as a full-screen RGBA PNG: 1px specular top,
+    vertical ramp, lifted bottom edge, 3px corner vignette, radius-5
+    corners (transparent). `hazard` stripes the top and bottom rows."""
+    pal = _plate_ramp(hexc)
+    w, h, r = 72, 16, 5
+    dark = (24, 20, 2, 255)
+    rows = []
+    for y in range(h):
+        if y == 0:
+            base = pal["spec"]
+        elif y == h - 1:
+            base = pal["lift"]
+        else:
+            base = _lerp(pal["top"], pal["bot"], (y - 1) / (h - 2))
+        row = []
+        for x in range(w):
+            cx, cy = min(x, w - 1 - x), min(y, h - 1 - y)
+            if cx < r and cy < r and (r - cx) ** 2 + (r - cy) ** 2 > r * r:
+                row.append((0, 0, 0, 0))
+                continue
+            edge = min(cx, cy)
+            scale = (0.25, 0.5, 0.75)[edge] if edge < 3 else 1.0
+            if hazard and y in (0, h - 1) and ((x + y) // 4) % 2:
+                row.append(dark)
+            else:
+                row.append(tuple(round(c * scale) for c in base) + (255,))
+        rows.append(row)
+    return png_encode(w, h, rows)
+
+
+def wash_anim_frames():
+    """The page-swap wash, transition_select grammar: a soft amber ring
+    blooms from the top edge while a wash rises fast and decays, ending
+    black — the swap underneath lands invisibly (departure-flash trick)."""
+    amber = (255, 176, 0)
+    frames = []
+    n = int(WASH_SECS * FPS)
+    for i in range(n):
+        t = i / FPS
+        ring_r = 4 + (t / WASH_SECS) * 82
+        ring_gain = max(0.0, 1.0 - t / (WASH_SECS * 0.75))
+        wash = 0.85 * min(1.0, t / 0.10) * math.exp(-t / 0.22)
+        fade = 1.0 if t < WASH_SECS - 0.15 else \
+            max(0.0, (WASH_SECS - t) / 0.15)
+        row_out = []
+        for y in range(16):
+            row = []
+            for x in range(72):
+                d = math.hypot(x - 36, y * 2.6)
+                g = math.exp(-((d - ring_r) ** 2) / 50.0) * ring_gain + wash
+                g = min(1.0, g) * fade
+                row.append(tuple(min(255, round(c * g)) for c in amber))
+            row_out.append(row)
+        frames.append(b"".join(bytes(v for px in row for v in px)
+                               for row in row_out))
+    frames.append(b"\x00" * (72 * 16 * 3))  # end black, hold
+    return frames
+
+
+def text_width(text, font):
+    """Pixel width of a status string, from the same glyph tables the
+    device fonts were parsed into (status screens are all-caps)."""
+    table = {"bold": BULLET_GLYPHS, "tiny": TINY_GLYPHS,
+             "extra_large": XL_GLYPHS}[font]
+    w = 0
+    for ch in text.upper():
+        if ch == " ":
+            w += 3 if font == "tiny" else 4
+        else:
+            g = table.get(ch)
+            # unknown chars (punctuation) get a safe overestimate so a
+            # marquee pass never gets cut short
+            w += (len(g[0]) + 1) if g else 4
+    return max(w - 1, 1)
+
+
+def build_status_assets():
+    """Plates + the wash anim, content-hash named like every other asset."""
+    out = {}
+    for key, blob in (("plate_red", make_plate("#7E1416")),
+                      ("plate_yellow", make_plate("#FCC30B", hazard=True)),
+                      ("plate_blue", make_plate("#123A7A"))):
+        out[key] = {"name": f"{key}-{hashlib.sha256(blob).hexdigest()[:8]}"
+                            ".png", "bytes": blob}
+    wash = anim_encode(wash_anim_frames(), 72, 16)
+    out["wash"] = {"name": f"wash-{hashlib.sha256(wash).hexdigest()[:8]}"
+                           ".anim", "bytes": wash}
+    return out
+
+
 def build_assets(designators):
     """Generate per-route art; names carry a content hash so art-pipeline
     changes never collide with stale files cached on the device."""
@@ -1023,11 +1141,13 @@ class Bar:
         raise SystemExit("no reachable BUSY Bar target:\n  " +
                          "\n  ".join(errors))
 
-    def upload_assets(self, assets):
+    def upload_assets(self, assets, extra=None):
         files = {}
         for a in assets.values():
             files[a["bullet_name"]] = a["bullet"]
             files[a["flash_name"]] = a["flash"]
+        for a in (extra or {}).values():
+            files[a["name"]] = a["bytes"]
         # Upload only what's missing at the right size — over the cloud relay
         # re-pushing every ~16KB anim on each start is a visible stall.
         try:
@@ -1168,12 +1288,82 @@ def decode_trip_updates(buf, stops, want_desigs):
                         yield t, route_id, trip_id
 
 
+def decode_status(buf, stops):
+    """Second pass over a feed for the status layer: vehicle positions
+    (held-train detection) and the NYCT scheduled/actual track extension at
+    the watched stops. Returns (held {trip: (secs, stop)}, track {trip:
+    (scheduled, actual)}).
+
+    Held = STOPPED_AT whose position timestamp lags the FEED's own header
+    timestamp — NYCT stamps vehicles at their last movement. Comparing two
+    feed clocks (not wall clock) means a stale snapshot can't mark the
+    whole railroad as held; if the feed itself is stale we skip held
+    detection entirely."""
+    now = time.time()
+    feed_ts = 0
+    held, track = {}, {}
+    for f, w, ent in _walk_fields(buf):
+        if f == 1 and w == 2:  # FeedHeader{gtfs_version=1, ..., timestamp=3}
+            for f2, w2, v2 in _walk_fields(ent):
+                if f2 == 3 and w2 == 0:
+                    feed_ts = v2
+            continue
+        if f != 2 or w != 2:
+            continue
+        for f2, w2, v2 in _walk_fields(ent):
+            if f2 == 3 and w2 == 2:  # TripUpdate: track ext at our stops
+                trip_id = ""
+                diffs = []
+                for f3, w3, v3 in _walk_fields(v2):
+                    if f3 == 1 and w3 == 2:
+                        for f4, w4, v4 in _walk_fields(v3):
+                            if f4 == 1 and w4 == 2:
+                                trip_id = v4.decode("utf-8", "replace")
+                    elif f3 == 2 and w3 == 2:
+                        stop, sched, act = "", "", ""
+                        for f4, w4, v4 in _walk_fields(v3):
+                            if f4 == 4 and w4 == 2:
+                                stop = v4.decode("utf-8", "replace")
+                            elif f4 == 1001 and w4 == 2:  # NyctStopTimeUpdate
+                                for f5, w5, v5 in _walk_fields(v4):
+                                    if f5 == 1 and w5 == 2:
+                                        sched = v5.decode("utf-8", "replace")
+                                    elif f5 == 2 and w5 == 2:
+                                        act = v5.decode("utf-8", "replace")
+                        if stop in stops and sched and act and sched != act:
+                            diffs.append((sched, act))
+                if trip_id and diffs:
+                    track[trip_id] = diffs[0]
+            elif f2 == 4 and w2 == 2:  # VehiclePosition
+                trip_id, stop = "", ""
+                status = ts = None
+                for f3, w3, v3 in _walk_fields(v2):
+                    if f3 == 1 and w3 == 2:
+                        for f4, w4, v4 in _walk_fields(v3):
+                            if f4 == 1 and w4 == 2:
+                                trip_id = v4.decode("utf-8", "replace")
+                    elif f3 == 4 and w3 == 0:
+                        status = v3
+                    elif f3 == 5 and w3 == 0:
+                        ts = v3
+                    elif f3 == 7 and w3 == 2:
+                        stop = v3.decode("utf-8", "replace")
+                fresh = feed_ts and now - feed_ts < 120
+                if fresh and trip_id and status == 1 and ts \
+                        and feed_ts - ts > HELD_AFTER_SECS:
+                    held[trip_id] = (feed_ts - ts,
+                                     stop[:-1] if stop[-1:] in "NS" else stop)
+    return held, track
+
+
 def fetch_arrivals(cfg):
-    """Return [(departure_epoch, route_id, trip_id), ...] sorted by time."""
+    """Return ([(departure_epoch, route_id, trip_id), ...] sorted by time,
+    {"held": ..., "track": ...} for the status layer)."""
     now = time.time()
     stops = set(cfg["stops"])
     want = set(cfg["designators"])
     per_trip = {}
+    held, track = {}, {}
     got_any = False
     errors = []
     for url in cfg["feeds"]:
@@ -1192,13 +1382,86 @@ def fetch_arrivals(cfg):
             # earliest watched departure
             if key not in per_trip or t < per_trip[key][0]:
                 per_trip[key] = (t, route_id, trip_id)
+        if ALERTS_ON:
+            h, tr = decode_status(r.content, stops)
+            held.update(h)
+            track.update(tr)
     if errors:
         print(f"[{time.strftime('%H:%M:%S')}] feed trouble: "
               + "; ".join(errors), file=sys.stderr)
     if not got_any:
         raise RuntimeError("all MTA feeds failed")
     out = sorted(per_trip.values())
-    return out[:MAX_ARRIVALS]
+    return out[:MAX_ARRIVALS], {"held": held, "track": track}
+
+
+def plain_text(text):
+    """Alert copy -> device-safe ASCII: strip the [G]-style bullet tokens
+    and icon markers, fold typographic punctuation."""
+    text = re.sub(r"\[([0-9A-Z]+)\]", r"\1", text)
+    text = re.sub(r"\[[^\]]+ icon\]\s*", "", text)
+    for a, b in (("—", "-"), ("–", "-"), ("•", "-"),
+                 ("’", "'"), ("‘", "'"), ("“", '"'),
+                 ("”", '"'), (" ", " ")):
+        text = text.replace(a, b)
+    return text.encode("ascii", "ignore").decode()
+
+
+def fetch_alerts(cfg):
+    """Currently-active Mercury alerts scoped to this station's routes and
+    platforms. Returns [{kind, type, head, period, routes}] sorted most
+    severe first (suspension > delays > planned > other)."""
+    now = time.time()
+    want_routes = {base_desig(d) for d in cfg["designators"]}
+    want_stops = {s[:-1] if s[-1:] in "NS" else s for s in cfg["stops"]}
+    r = requests.get(ALERTS_URL, timeout=15)
+    r.raise_for_status()
+    out = []
+    for e in r.json().get("entity", []):
+        a = e.get("alert", {})
+        merc = a.get("transit_realtime.mercury_alert", {})
+        windows = a.get("active_period", [])
+        if windows and not any(
+                p.get("start", 0) <= now <= p.get("end", 2 ** 62)
+                for p in windows):
+            continue
+        ents = a.get("informed_entity", [])
+        # the feed carries raw GTFS route_ids (GS, FS, H, SI) — collapse
+        # them exactly like every other feed path before matching
+        routes = {base_desig(designator(i["route_id"]))
+                  for i in ents if i.get("route_id")}
+        stops_hit = {s[:-1] if s[-1:] in "NS" else s
+                     for s in (i.get("stop_id") for i in ents) if s}
+        stop_scoped = bool(stops_hit)
+        hit_routes = routes & want_routes
+        if not hit_routes:
+            continue
+        if stop_scoped and not (stops_hit & want_stops):
+            continue
+        head = next((t["text"] for t in
+                     a.get("header_text", {}).get("translation", [])
+                     if t.get("language") == "en"), "")
+        if not head:
+            continue
+        period = next((t["text"] for t in
+                       merc.get("human_readable_active_period", {})
+                       .get("translation", [])
+                       if t.get("language") == "en"), "")
+        atype = merc.get("alert_type", "")
+        if "Suspended" in atype and not atype.startswith("Planned"):
+            kind = "suspension"
+        elif atype == "Delays":
+            kind = "delays"
+        elif atype.startswith("Planned"):
+            kind = ("suspension" if "Suspended" in atype else "planned")
+        else:
+            kind = "other"
+        out.append({"kind": kind, "type": atype,
+                    "head": plain_text(head), "period": plain_text(period),
+                    "routes": sorted(hit_routes)})
+    rank = {"suspension": 0, "delays": 1, "planned": 2, "other": 3}
+    out.sort(key=lambda a: rank[a["kind"]])
+    return out
 
 
 # ----------------------------------------------------------------- rendering
@@ -1210,7 +1473,50 @@ def asset_desig(assets, route_id):
     return d if d in assets else base_desig(d)
 
 
-def build_screen(cfg, assets, arrivals, index, offset=0):
+def build_plate_screen(status_assets, plate_key, bullet_name, lines,
+                       marquee=None, marquee_color="#FFD2CCFF"):
+    """A busy-mode plate page: plate asset + bullet in the icon slot +
+    stacked bold lines (shadow copy under each, the truvo treatment) +
+    an optional tiny in-plate marquee. Element ids stay type-stable."""
+    els = [{"id": "plate", "type": "image",
+            "path": status_assets[plate_key]["name"],
+            "x": 0, "y": 0, "timeout": ELEMENT_TIMEOUT}]
+    x0a, x1a = 4, 68
+    if bullet_name:
+        els.append({"id": "bullet", "type": "image", "path": bullet_name,
+                    "x": 1, "y": 0, "timeout": ELEMENT_TIMEOUT})
+        x0a = 19
+    for i, (text, y) in enumerate(lines):
+        w = text_width(text, "bold")
+        x = x0a + max(0, x1a - x0a - w) // 2
+        els.append({"id": f"l{i}s", "type": "text", "text": text,
+                    "font": "bold", "color": "#00000091", "x": x,
+                    "y": y + 1, "align": "top_left",
+                    "timeout": ELEMENT_TIMEOUT})
+        els.append({"id": f"l{i}", "type": "text", "text": text,
+                    "font": "bold", "color": WHITE, "x": x, "y": y,
+                    "align": "top_left", "timeout": ELEMENT_TIMEOUT})
+    if marquee:
+        el = {"id": "mq", "type": "text", "text": marquee,
+              "font": "tiny", "color": marquee_color,
+              "x": x0a, "y": 15, "align": "bottom_left",
+              "timeout": ELEMENT_TIMEOUT}
+        win = x1a - x0a + 2
+        if text_width(marquee, "tiny") > win:
+            # scroll props only when the line actually overflows — a label
+            # that fits must not carry them (firmware scrolls it anyway)
+            el.update({"width": win, "scroll_rate": MARQUEE_RATE})
+        els.append(el)
+    return els
+
+
+def marquee_pass_secs(text):
+    """One full circular-scroll cycle for a tiny in-plate marquee — the
+    LVGL formula: (text_px + 15px wait gap) * 60000 / rate."""
+    return (text_width(text, "tiny") + 15) * 60.0 / MARQUEE_RATE
+
+
+def build_screen(cfg, assets, arrivals, index, offset=0, alert_dot=False):
     """One arrival card, optionally shifted vertically by `offset` px."""
     els = []
     if not arrivals:
@@ -1235,6 +1541,15 @@ def build_screen(cfg, assets, arrivals, index, offset=0):
         "path": assets[asset_desig(assets, route)]["bullet_name"],
         "x": 1, "y": 0 + offset, "timeout": ELEMENT_TIMEOUT,
     })
+    if alert_dot:
+        # a live service alert exists: quiet amber corner dot on the
+        # bullet; the full story plays as the periodic alert page
+        els.append({
+            "id": "adot", "type": "rectangle", "x": 12, "y": 0 + offset,
+            "width": 3, "height": 3, "fill": "solid",
+            "fill_colors": [AMBER], "border_width": 0,
+            "timeout": ELEMENT_TIMEOUT,
+        })
     if mins == 0:
         els.append({
             "id": "num", "type": "text", "text": "NOW",
@@ -1295,16 +1610,24 @@ def build_flash_anim(assets, desig):
 # ---------------------------------------------------------------- main loops
 
 class App:
-    def __init__(self, bar, cfg, assets):
+    def __init__(self, bar, cfg, assets, status_assets=None):
         self.bar = bar
         self.cfg = cfg
         self.assets = assets
+        self.status_assets = status_assets or {}
         self.arrivals = []
+        self.alerts = []            # active Mercury alerts for this station
+        self.held = {}              # trip_id -> (secs stuck, stop base)
+        self.track = {}             # trip_id -> (scheduled, actual) track
+        self.last_alert_page = time.time()  # settle before first interrupt
+        self.page_hold_until = 0.0  # alert page on screen until then
+        self.stop_names = ({r[0]: r[1] for r in load_stations()}
+                           if self.status_assets else {})
         self.index = 0
         self.blocked = False        # a higher-priority app owns the screen
         self.last_dial = 0.0
         self.dot_count = 0
-        self.canvas_mode = None     # "card" | "msg" | None (nothing pushed)
+        self.canvas_mode = None     # "card" | "msg" | "plate_*" | None
         self.shown_key = None       # (dep_time, route, mins) last rendered
         self.lock = asyncio.Lock()  # serializes renders/animations
 
@@ -1316,20 +1639,70 @@ class App:
         self.index = max(0, min(self.index, len(self.arrivals) - 1))
         return self.arrivals[self.index]
 
+    def _alert(self, *kinds):
+        for a in self.alerts:
+            if a["kind"] in kinds:
+                return a
+        return None
+
+    def _status_bullet(self, alert=None):
+        """The bullet for a status plate: the alert's own line when we have
+        art for it, else the station's first — a C-only suspension at an
+        A/C/E station must not fly an A bullet."""
+        for r in (alert or {}).get("routes", []):
+            if r in self.assets:
+                return self.assets[r]["bullet_name"]
+        return self.assets[self.cfg["designators"][0]]["bullet_name"]
+
+    def _screen_elements(self, offset=0):
+        """What belongs on screen right now: a status takeover plate, or
+        the ordinary card (with the amber dot during live alerts)."""
+        if self.status_assets:
+            if not self.arrivals:
+                # two stacked lines fill the plate; the headline detail
+                # rides the periodic alert page instead (16px fits two
+                # bold lines OR a marquee, not both)
+                a = self._alert("suspension")
+                if a:
+                    return build_plate_screen(
+                        self.status_assets, "plate_red",
+                        self._status_bullet(a),
+                        [("NO", 1), ("TRAINS", 8)]), "plate_susp"
+                a = self._alert("planned")
+                if a:
+                    return build_plate_screen(
+                        self.status_assets, "plate_yellow",
+                        self._status_bullet(a),
+                        [("PLANNED", 1), ("WORK", 8)]), "plate_plan"
+            shown = self.displayed()
+            if shown and shown[2] in self.held:
+                secs, stop = self.held[shown[2]]
+                name = self.stop_names.get(stop, stop)
+                bullet = self.assets[
+                    asset_desig(self.assets, shown[1])]["bullet_name"]
+                return build_plate_screen(
+                    self.status_assets, "plate_red", bullet,
+                    [("DELAYED", 1)],
+                    marquee=f"HELD {int(secs // 60)} MIN AT {name}".upper()
+                ), "plate_delay"
+        dot = bool(self.status_assets and self._alert("delays"))
+        els = build_screen(self.cfg, self.assets, self.arrivals, self.index,
+                           offset, alert_dot=dot)
+        return els, ("card" if self.arrivals else "msg") + \
+            ("+a" if dot else "")
+
     def _push(self, offset=0):
         """One draw attempt; tracks blocked state. Returns True if drawn."""
+        els, mode = self._screen_elements(offset)
         # elements merge by id on the device, so start clean whenever the
-        # shape of what we draw changes (fewer dots, card <-> message)
-        mode = "card" if self.arrivals else "msg"
+        # shape of what we draw changes (fewer dots, card <-> plate <-> msg)
         if (len(self.arrivals) < self.dot_count
                 or mode != self.canvas_mode) and self.canvas_mode:
             try:
                 self.bar.clear()
             except requests.RequestException:
                 pass
-        drawn = self.bar.draw(
-            build_screen(self.cfg, self.assets, self.arrivals, self.index,
-                         offset))
+        drawn = self.bar.draw(els)
         was_blocked, self.blocked = self.blocked, not drawn
         if drawn:
             self.dot_count = len(self.arrivals)
@@ -1364,6 +1737,7 @@ class App:
 
     async def slide_to(self, new_index, direction=1):
         """Eased slide to another arrival (up = next, down = previous)."""
+        self.page_hold_until = 0.0  # the dial always wins over alert pages
         async with self.lock:
             if self.blocked or not self.arrivals:
                 self.index = new_index
@@ -1453,14 +1827,126 @@ class App:
                     best = i
         return best
 
+    def _pick_page(self):
+        """The alert page worth interrupting the card for, most urgent
+        first: live delays, a track change on the shown train, planned
+        work coming up."""
+        a = self._alert("delays")
+        if a:
+            return ("plate_red", [("ALERT", 1)], a["head"].upper(),
+                    "#FFD2CCFF")
+        shown = self.displayed()
+        if shown and shown[2] in self.track:
+            return ("plate_blue", [("EXPRESS", 1), ("TRACK", 8)],
+                    None, None)
+        a = self._alert("planned")
+        if a:
+            mq = a["head"] + ("   " + a["period"] if a["period"] else "")
+            return ("plate_yellow", [("PLANNED", 1)],
+                    mq.upper(), "#201A02FF")
+        return None
+
+    async def _page_recover(self):
+        """Land back on the card with a clean canvas, whatever happened.
+        Caller holds self.lock."""
+        try:
+            await asyncio.to_thread(self.bar.clear)
+        except requests.RequestException:
+            pass
+        self.canvas_mode = None
+        self.dot_count = 0
+        try:
+            await asyncio.to_thread(self._push)
+        except requests.RequestException:
+            pass
+
+    async def alert_page(self):
+        """The card ⇄ alert page cycle: an amber wash covers the swap to a
+        full-screen plate, the headline makes one marquee pass, the wash
+        brings the card back — transition_select grammar throughout. The
+        lock is held only for the swap legs; during the hold the page is
+        protected by page_hold_until, which user input (the dial) may
+        override."""
+        self.last_alert_page = time.time()
+        page = self._pick_page()
+        if not page or not self.status_assets:
+            return
+        plate_key, lines, marquee, mcolor = page
+        shown = self.displayed()
+        bullet = (self.assets[asset_desig(self.assets, shown[1])]
+                  ["bullet_name"] if shown else self._status_bullet())
+        els = build_plate_screen(self.status_assets, plate_key, bullet,
+                                 lines, marquee=marquee,
+                                 marquee_color=mcolor or "#FFD2CCFF")
+        hold = (min(12.0, max(4.0, marquee_pass_secs(marquee) + 0.5))
+                if marquee else 5.0)
+        wash = [{"id": "wash", "type": "animation",
+                 "path": self.status_assets["wash"]["name"],
+                 "x": 0, "y": 0, "loop": False,
+                 "timeout": ELEMENT_TIMEOUT}]
+        async with self.lock:
+            if self.blocked:
+                return
+            try:
+                if not await asyncio.to_thread(self.bar.draw, wash):
+                    self.blocked = True
+                    return
+                await asyncio.sleep(WASH_SECS)  # ends black and holds
+                await asyncio.to_thread(self.bar.clear)
+                self.canvas_mode = None
+                self.dot_count = 0
+                if not await asyncio.to_thread(self.bar.draw, els):
+                    self.blocked = True
+                    return
+                self.canvas_mode = "alert_page"
+            except requests.RequestException as e:
+                print(f"[{time.strftime('%H:%M:%S')}] alert page error: "
+                      f"{e}", file=sys.stderr)
+                await self._page_recover()
+                return
+        self.page_hold_until = time.time() + hold
+        await asyncio.sleep(hold)
+        self.page_hold_until = 0.0
+        async with self.lock:
+            if self.canvas_mode != "alert_page":
+                return  # the dial already took the screen back
+            try:
+                await asyncio.to_thread(self.bar.draw, wash)
+                await asyncio.sleep(WASH_SECS)
+            except requests.RequestException as e:
+                print(f"[{time.strftime('%H:%M:%S')}] alert page error: "
+                      f"{e}", file=sys.stderr)
+            await self._page_recover()
+        self.last_alert_page = time.time()
+
+    async def alerts_poller(self):
+        while True:
+            try:
+                alerts = await asyncio.to_thread(fetch_alerts, self.cfg)
+                if ([a["type"] for a in alerts]
+                        != [a["type"] for a in self.alerts]):
+                    kinds = ", ".join(a["type"] for a in alerts) or "clear"
+                    print(f"[{time.strftime('%H:%M:%S')}] service status: "
+                          f"{kinds}")
+                self.alerts = alerts
+            except Exception as e:
+                print(f"[{time.strftime('%H:%M:%S')}] alerts fetch error: "
+                      f"{e}", file=sys.stderr)
+            await asyncio.sleep(ALERTS_POLL_SECS)
+
     async def fetcher(self):
         while True:
             try:
                 shown = self.displayed()
-                self.arrivals = await asyncio.to_thread(fetch_arrivals,
-                                                        self.cfg)
+                self.arrivals, status = await asyncio.to_thread(
+                    fetch_arrivals, self.cfg)
+                self.held = status["held"]
+                self.track = status["track"]
                 match = shown and self._same_train(shown, self.arrivals)
-                if shown and match is None and self.arrivals:
+                if time.time() < self.page_hold_until:
+                    if match is not None:
+                        self.index = match  # data stays fresh; page stays up
+                elif shown and match is None and self.arrivals:
                     await self.departure_flash(shown[1])
                 else:
                     if match is not None:
@@ -1478,7 +1964,8 @@ class App:
             await asyncio.sleep(FETCH_SECS)
 
     async def supervisor(self):
-        """Retry while blocked; flip the minutes exactly on the boundary."""
+        """Retry while blocked; flip the minutes exactly on the boundary;
+        interrupt with the alert page on its cadence."""
         while True:
             await asyncio.sleep(BLOCKED_RETRY_SECS if self.blocked
                                 else TICK_SECS)
@@ -1488,6 +1975,14 @@ class App:
             if self.blocked:
                 await self.render()  # cheap 409 until we own the screen
                 continue
+            if time.time() < self.page_hold_until:
+                continue  # an alert page owns the screen right now
+            if (self.status_assets and self.arrivals
+                    and (self.canvas_mode or "").startswith("card")
+                    and time.time() - self.last_alert_page > ALERT_PAGE_EVERY
+                    and self._pick_page()):
+                await self.alert_page()
+                continue
             mins_now = int(max(0, d[0] - time.time()) // 60)
             if self.shown_key != (d[0], d[1], mins_now):
                 await self.render()
@@ -1496,6 +1991,7 @@ class App:
         while True:
             await asyncio.sleep(5)
             if (self.index != 0 and not self.blocked
+                    and time.time() >= self.page_hold_until
                     and time.time() - self.last_dial > IDLE_RESET_SECS):
                 await self.slide_to(0, direction=-1)
 
@@ -1533,6 +2029,8 @@ class App:
         except requests.RequestException:
             pass
         tasks = [self.fetcher(), self.supervisor()]
+        if self.status_assets:
+            tasks.append(self.alerts_poller())
         if self.bar.t.ws_uri:
             tasks += [self.dial_listener(), self.idle_reset()]
         await asyncio.gather(*tasks)
@@ -1551,6 +2049,66 @@ class App:
         departed = self.arrivals.pop(0)
         await self.departure_flash(departed[1])
         await asyncio.sleep(2)
+
+    async def demo_alerts(self):
+        """Stage every service-status screen with fake data, in sequence:
+        card with alert dot, the alert-page cycle, DELAYED plate, the
+        EXPRESS/TRACK page, NO TRAINS plate, PLANNED WORK plate. The
+        [demo] markers let capture tooling slice states deterministically."""
+        def mark(name):
+            print(f"[demo] {name}", flush=True)
+
+        now = time.time()
+        routes = self.cfg["route_ids"]
+        self.arrivals = [
+            (now + 420, routes[0], "demo-1"),
+            (now + 900, routes[1 % len(routes)], "demo-2"),
+            (now + 1260, routes[2 % len(routes)], "demo-3"),
+        ]
+        self.alerts = [{
+            "kind": "delays", "type": "Delays",
+            "head": f"{designator(routes[0])} trains are running with "
+                    "delays while we investigate a signal problem",
+            "period": "", "routes": [designator(routes[0])]}]
+        mark("card_dot")
+        await self.render()
+        await asyncio.sleep(4)
+        mark("alert_cycle")
+        await self.alert_page()
+        await asyncio.sleep(2)
+        d = self.displayed()
+        self.alerts = []
+        self.held = {d[2]: (7 * 60, self.cfg["stops"][0][:-1])}
+        mark("delayed")
+        await self.render()
+        await asyncio.sleep(6)
+        self.held = {}
+        self.track = {d[2]: ("D4", "D3")}
+        self.last_alert_page = 0
+        mark("track_cycle")
+        await self.alert_page()
+        self.track = {}
+        await asyncio.sleep(1)
+        self.arrivals = []
+        self.alerts = [{
+            "kind": "suspension", "type": "Planned - Part Suspended",
+            "head": f"No {designator(routes[0])} trains between Court Sq "
+                    "and Bedford-Nostrand Avs",
+            "period": "Fri 9:45 PM to Mon 5:00 AM",
+            "routes": [designator(routes[0])]}]
+        mark("notrains")
+        await self.render()
+        await asyncio.sleep(7)
+        self.alerts = [{
+            "kind": "planned", "type": "Planned - Stops Skipped",
+            "head": "Trains skip 4 Av-9 St, 15 St-Prospect Park and Fort "
+                    "Hamilton Pkwy",
+            "period": "Aug 21 - 24", "routes": [designator(routes[0])]}]
+        mark("planned")
+        await self.render()
+        await asyncio.sleep(7)
+        mark("end")
+        await asyncio.to_thread(self.bar.clear)
 
 
 def encoder_deltas(frame):
@@ -1621,6 +2179,9 @@ def main():
                         help="clear display and exit")
     parser.add_argument("--demo", action="store_true",
                         help="run the departure-flash demo and exit")
+    parser.add_argument("--demo-alerts", action="store_true",
+                        help="stage every service-status screen with fake "
+                             "data and exit")
     args = parser.parse_args()
 
     if args.list_stations is not None:
@@ -1662,14 +2223,16 @@ def main():
           f"{len(cfg['feeds'])} feed(s)")
 
     assets = build_assets(cfg["designators"])
+    status_assets = build_status_assets() if ALERTS_ON else {}
     try:
-        bar.upload_assets(assets)
+        bar.upload_assets(assets, status_assets)
     except requests.RequestException as e:
         print(f"asset upload failed: {e}", file=sys.stderr)
 
-    app = App(bar, cfg, assets)
+    app = App(bar, cfg, assets, status_assets)
     try:
-        asyncio.run(app.demo() if args.demo else app.run())
+        asyncio.run(app.demo_alerts() if args.demo_alerts
+                    else app.demo() if args.demo else app.run())
     except KeyboardInterrupt:
         try:
             bar.clear()
