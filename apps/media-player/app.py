@@ -64,6 +64,9 @@ class NowPlaying:
     duration: Optional[float] = None
     elapsed: Optional[float] = None
     playback_rate: Optional[float] = None
+    # True when the backend supplies a position that is recalculated by the OS
+    # on every poll (e.g. MediaRemote calculatedPlaybackPosition on macOS).
+    elapsed_live: bool = False
     elapsed_reliable: bool = False
     error: Optional[str] = None
 
@@ -123,7 +126,7 @@ function run() {
     if (!info) {
         return JSON.stringify({ok:true, active:false, app:app, bundle_id:bundleId,
             title:null, artist:null, album:null, duration:null, elapsed:null,
-            playback_rate:null, state:'idle'});
+            playback_rate:null, elapsed_live:false, state:'idle'});
     }
 
     function get(key) {
@@ -153,7 +156,8 @@ function run() {
 
     return JSON.stringify({ok:true, active:!!(title || artist || album || app),
         app:app, bundle_id:bundleId, title:title, artist:artist, album:album,
-        duration:duration, elapsed:elapsed, playback_rate:rate, state:state});
+        duration:duration, elapsed:elapsed, playback_rate:rate,
+        elapsed_live:(calculatedElapsed !== null), state:state});
 }
 '''
 
@@ -439,9 +443,11 @@ def process_control_events(listener: InputListener, last_wheel_at: float, cooldo
         elif "encoder_event" in event:
             delta = int(event["encoder_event"].get("delta", 0) or 0)
             if delta and now - last_wheel_at >= cooldown:
-                command = "next" if delta > 0 else "previous"
+                # Match the physical direction seen from the front of the
+                # BUSY Bar: one direction advances, the opposite goes back.
+                command = "previous" if delta > 0 else "next"
                 ok, detail = media_command(command)
-                label = "NEXT" if delta > 0 else "PREVIOUS"
+                label = "PREVIOUS" if delta > 0 else "NEXT"
                 print(f"control: {label}" + ("" if ok else f" failed: {detail}"))
                 last_wheel_at = now
     return last_wheel_at
@@ -496,6 +502,7 @@ if ($null -ne $timeline) {
     album = if ($props.AlbumTitle) { [string]$props.AlbumTitle } else { $null }
     duration = $duration
     elapsed = $elapsed
+    elapsed_live = ($null -ne $elapsed)
     playback_rate = $null
 } | ConvertTo-Json -Compress
 '''
@@ -592,6 +599,23 @@ class ElapsedTracker:
         valid = e is not None and d is not None and d > 0 and 0 <= e <= d + 5
 
         if not valid:
+            # Some players temporarily stop publishing elapsed at pause/end of
+            # track while duration/metadata remain available. Preserve the last
+            # trustworthy timeline instead of collapsing "2:30/2:31" to "2:31"
+            # and hiding the progress bar.
+            if (
+                d is not None and d > 0
+                and self.source_advanced
+                and self.anchor_elapsed is not None
+                and np.active
+            ):
+                held = self.anchor_elapsed
+                if np.state == "playing" and self.anchor_wall is not None and not np.elapsed_live:
+                    rate = np.playback_rate if np.playback_rate and np.playback_rate > 0 else 1.0
+                    held += (now - self.anchor_wall) * rate
+                np.elapsed = max(0.0, min(d, held))
+                np.elapsed_reliable = True
+                return np
             np.elapsed_reliable = False
             return np
 
@@ -630,10 +654,19 @@ class ElapsedTracker:
             np.elapsed_reliable = False
             return np
 
-        predicted = self.anchor_elapsed
-        if np.state == "playing" and self.anchor_wall is not None:
-            rate = np.playback_rate if np.playback_rate and np.playback_rate > 0 else 1.0
-            predicted += (now - self.anchor_wall) * rate
+        # A live OS-calculated position is authoritative. Do not extrapolate it:
+        # when playback is paused the value stops, even if a player leaves a
+        # stale playback-rate flag set to 1. This fixes the counter continuing
+        # to run after a BUSY Bar Play/Pause command.
+        if np.elapsed_live:
+            predicted = e
+            self.anchor_elapsed = e
+            self.anchor_wall = now
+        else:
+            predicted = self.anchor_elapsed
+            if np.state == "playing" and self.anchor_wall is not None:
+                rate = np.playback_rate if np.playback_rate and np.playback_rate > 0 else 1.0
+                predicted += (now - self.anchor_wall) * rate
 
         np.elapsed = max(0.0, min(d, predicted))
         np.elapsed_reliable = True
@@ -793,18 +826,18 @@ def build_static_elements(np: NowPlaying, title_color=DEFAULT_TITLE_COLOR, artis
     if lp["mode"] == "error":
         return [
             text("line1", lp["line1"], 0, 0, color=lp["line1_color"]),
-            text("line2", lp["line2"], 0, 8, color=lp["line2_color"],
+            text("line2", lp["line2"], 0, 7, color=lp["line2_color"],
                  width=72, scroll_rate=540),
         ]
     if lp["mode"] == "idle":
         return [
             text("line1", lp["line1"], 36, 0, align="top_mid", color=lp["line1_color"]),
-            text("line2", lp["line2"], 36, 8, align="top_mid", color=lp["line2_color"]),
+            text("line2", lp["line2"], 36, 7, align="top_mid", color=lp["line2_color"]),
         ]
     return [
         text("line1", lp["line1"], 0, 0, width=72, scroll_rate=480,
              color=lp["line1_color"]),
-        text("line2", lp["line2"], 0, 8, width=lp["left_width"], scroll_rate=480,
+        text("line2", lp["line2"], 0, 7, width=lp["left_width"], scroll_rate=480,
              color=lp["line2_color"]),
     ]
 
@@ -813,14 +846,14 @@ def build_dynamic_elements(np: NowPlaying, time_color=DEFAULT_TIME_COLOR, time_s
     """Counter + timeline, safe to update every second without touching scroll text."""
     if np.error or not np.active:
         return [
-            text("time", "", 72, 8, align="top_right", color=BLACK),
+            text("time", "", 72, 7, align="top_right", color=BLACK),
             rect("prog_bg", 0, 15, 72, 1, BLACK),
             rect("prog", 0, 15, 1, 1, BLACK),
         ]
 
     counter = _time_counter(np, time_separator)
     elements = [
-        text("time", counter or "", 72, 8, align="top_right",
+        text("time", counter or "", 72, 7, align="top_right",
              color=time_color if counter else BLACK),
     ]
 
@@ -869,7 +902,7 @@ def demo_frame(t: float) -> NowPlaying:
         active=True, state="playing", app="VLC", bundle_id="org.videolan.vlc",
         title="AnatomiaMaster — cross-platform Now Playing prototype",
         artist="BUSY Bar Demo", duration=duration, elapsed=elapsed,
-        playback_rate=1.0, elapsed_reliable=True,
+        playback_rate=1.0, elapsed_live=True, elapsed_reliable=True,
     )
 
 
