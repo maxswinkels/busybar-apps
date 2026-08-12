@@ -423,8 +423,10 @@ class InputListener:
         import websockets
 
         url = _ws_url(self._address, self._token)
-        backoff = 1.0
-        max_backoff = 15.0
+        # Fast reconnect policy for unstable Wi-Fi:
+        # 0.5s -> 1s -> 2s -> 3s (then stay at 3s).
+        backoff = 0.5
+        max_backoff = 3.0
         connected_once = False
 
         while not self._stop.is_set():
@@ -443,7 +445,7 @@ class InputListener:
                     connected_once = True
                     self.available = True
                     self.error = None
-                    backoff = 1.0
+                    backoff = 0.5
 
                     async for message in ws:
                         if self._stop.is_set():
