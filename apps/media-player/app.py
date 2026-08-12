@@ -626,6 +626,8 @@ class ElapsedTracker:
         self.first_valid_wall = None
         self.source_advanced = False
         self.reliable_bundles = set()
+        self.last_observed_elapsed = None
+        self.last_observed_wall = None
 
     def _reset(self, ident, now):
         self.identity = ident
@@ -634,6 +636,8 @@ class ElapsedTracker:
         self.anchor_wall = None
         self.first_valid_wall = now
         self.source_advanced = False
+        self.last_observed_elapsed = None
+        self.last_observed_wall = None
 
     def update(self, np: NowPlaying) -> NowPlaying:
         ident = (np.bundle_id, np.title, np.duration)
@@ -643,6 +647,24 @@ class ElapsedTracker:
 
         e = np.elapsed
         d = np.duration
+
+        # Some macOS clients report playback_rate=None when paused, which the
+        # backend normalizes to state="unknown". If the OS-reported elapsed
+        # value is present and stationary across polls, treat unknown as paused.
+        if (
+            np.state == "unknown"
+            and e is not None
+            and self.last_observed_elapsed is not None
+            and self.last_observed_wall is not None
+            and now - self.last_observed_wall >= 0.5
+            and abs(e - self.last_observed_elapsed) <= 0.10
+        ):
+            np.state = "paused"
+
+        if e is not None:
+            self.last_observed_elapsed = e
+            self.last_observed_wall = now
+
         valid = e is not None and d is not None and d > 0 and 0 <= e <= d + 5
 
         if not valid:
@@ -660,6 +682,10 @@ class ElapsedTracker:
                 if np.state == "playing" and self.anchor_wall is not None and not np.elapsed_live:
                     rate = np.playback_rate if np.playback_rate and np.playback_rate > 0 else 1.0
                     held += (now - self.anchor_wall) * rate
+                else:
+                    # paused/unknown freezes the last trustworthy position.
+                    self.anchor_elapsed = held
+                    self.anchor_wall = now
                 np.elapsed = max(0.0, min(d, held))
                 np.elapsed_reliable = True
                 return np
@@ -714,6 +740,11 @@ class ElapsedTracker:
             if np.state == "playing" and self.anchor_wall is not None:
                 rate = np.playback_rate if np.playback_rate and np.playback_rate > 0 else 1.0
                 predicted += (now - self.anchor_wall) * rate
+            else:
+                # Never extrapolate through paused or unknown states. This also
+                # avoids a catch-up jump when playback resumes later.
+                self.anchor_elapsed = predicted
+                self.anchor_wall = now
 
         np.elapsed = max(0.0, min(d, predicted))
         np.elapsed_reliable = True
