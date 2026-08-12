@@ -1,0 +1,11 @@
+# Runtime dependency for Character's input layer, and nothing else. The render
+# path, the sensors and the HTTP draw calls are all stdlib-only, so --no-input,
+# --preview, --signals and --simulate-input run without installing this.
+#
+#   python3 -m venv venv && venv/bin/pip install -r requirements.txt
+#
+# The device's input arrives as protobuf over a WebSocket; the standard library
+# speaks neither, and busylib hides both behind plain dicts. Pinned to the same
+# version HomeAssistant/requirements.txt is verified against on Python 3.14.2.
+
+busylib==1.3.0    # BUSY Bar device client (AsyncBusyBar, stream_status_ws)

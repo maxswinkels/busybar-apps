@@ -1,0 +1,164 @@
+#!/usr/bin/env python3
+"""Tide Clock: alternates between a big clock and the next tide event
+(high/low, height, and time) for any NOAA Tides & Currents station.
+
+    python app.py                                  # BUSY Bar over USB (always 10.0.4.20)
+    python app.py --host 127.0.0.1:8080             # emulator or a Wi-Fi bar
+    python app.py --station 8518750                 # a different NOAA station (default: Charleston, SC)
+"""
+import datetime
+import json
+import sys
+import time
+import urllib.error
+import urllib.request
+
+APP = "daninsc.tideclock"
+
+# ---------------------------------------------------------------------------
+# BUSY Bar HTTP API — self-contained, stdlib only.
+# Over USB the bar is always at 10.0.4.20; --host targets a Wi-Fi bar or the
+# emulator. Full API docs are served by the device: http://10.0.4.20/docs
+# ---------------------------------------------------------------------------
+
+def _arg(flag, default):
+    if flag in sys.argv:
+        i = sys.argv.index(flag)
+        if i + 1 < len(sys.argv):
+            return sys.argv[i + 1]
+    return default
+
+BASE = "http://" + _arg("--host", "10.0.4.20").replace("http://", "").rstrip("/")
+STATION = _arg("--station", "8665530")  # NOAA station ID; default is Charleston Harbor, SC
+
+
+def draw(elements, **extra):
+    body = {"application_name": APP, "elements": elements, **extra}
+    req = urllib.request.Request(BASE + "/api/display/draw",
+                                 data=json.dumps(body).encode(), method="POST",
+                                 headers={"Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=5):
+        pass
+
+
+_next_element_id = [0]
+
+
+def text(txt, x=0, y=0, font="normal", color="#FFFFFFFF", id=None, **kw):
+    # The real device requires every element to carry an id (the emulator is
+    # more lenient and doesn't enforce this) -- auto-number if not given.
+    if id is None:
+        _next_element_id[0] += 1
+        id = "t%d" % _next_element_id[0]
+    return {"id": id, "type": "text", "text": str(txt), "x": x, "y": y, "font": font, "color": color, **kw}
+
+
+# ---------------------------------------------------------------------------
+# Tide data (NOAA CO-OPS, no API key required)
+# ---------------------------------------------------------------------------
+
+def fetch_next_tide():
+    """Returns (kind, height_ft, when_local) for the next high/low tide, or
+    None on any fetch/parse failure (caller just skips the tide frame that
+    tick). Fetches in GMT and compares against an aware UTC "now" so this is
+    correct regardless of the machine's local timezone vs. the station's --
+    a naive local-vs-station-local comparison breaks whenever they differ
+    (e.g. running this in the Netherlands against a US station)."""
+    now_utc = datetime.datetime.now(datetime.timezone.utc)
+    begin_date = now_utc.strftime("%Y%m%d")
+    url = (
+        "https://api.tidesandcurrents.noaa.gov/api/prod/datagetter"
+        f"?product=predictions&application=busybar_tideclock&begin_date={begin_date}"
+        f"&range=48&datum=MLLW&station={STATION}&time_zone=gmt"
+        "&units=english&interval=hilo&format=json"
+    )
+    try:
+        with urllib.request.urlopen(url, timeout=8) as r:
+            data = json.load(r)
+    except (urllib.error.URLError, ValueError):
+        return None
+
+    predictions = data.get("predictions", [])
+    for p in predictions:
+        when_utc = datetime.datetime.strptime(p["t"], "%Y-%m-%d %H:%M").replace(
+            tzinfo=datetime.timezone.utc)
+        if when_utc >= now_utc:
+            kind = "HIGH" if p["type"] == "H" else "LOW"
+            return kind, float(p["v"]), when_utc.astimezone()  # display in local tz
+    return None
+
+
+_tide_cache = {"value": None, "fetched_at": 0.0}
+TIDE_REFRESH_SECONDS = 15 * 60  # NOAA predictions don't change minute to minute
+
+
+def get_next_tide():
+    now = time.time()
+    if now - _tide_cache["fetched_at"] > TIDE_REFRESH_SECONDS or _tide_cache["value"] is None:
+        _tide_cache["value"] = fetch_next_tide()
+        _tide_cache["fetched_at"] = now
+    return _tide_cache["value"]
+
+
+# ---------------------------------------------------------------------------
+# App: alternate between clock (5s) and next-tide (5s)
+# ---------------------------------------------------------------------------
+
+CYCLE_SECONDS = 10
+CLOCK_SECONDS = 5
+
+
+def tick():
+    # Two fixed, stable ids ("line1"/"line2") reused every frame -- the
+    # firmware treats a redraw with the same id as an update, but a fresh id
+    # each frame just keeps piling up new elements until the device hits
+    # "Elements number limit exceeded" and rejects the draw entirely. When a
+    # view only needs one line, the other id is still sent, just blank, so
+    # nothing from a previous view lingers on screen.
+    phase = int(time.time()) % CYCLE_SECONDS
+    if phase < CLOCK_SECONDS:
+        hhmm = time.strftime("%H:%M:%S", time.localtime())
+        elements = [
+            text(hhmm, x=36, y=15, font="extra_large", align="bottom_mid", id="line1"),
+            text("", x=36, y=7, font="normal", align="top_mid", id="line2"),
+        ]
+    else:
+        tide = get_next_tide()
+        if tide is None:
+            elements = [
+                text("TIDE N/A", x=36, y=8, font="normal", align="center", id="line1"),
+                text("", x=36, y=7, font="normal", align="top_mid", id="line2"),
+            ]
+        else:
+            kind, height, when_local = tide
+            # y=-1/y=7, not y=1/y=9 -- confirmed against the real device's
+            # framebuffer (GET /api/screen): y=1/y=9 clipped line2's bottom
+            # row and left row 0 dark. y=-1/y=7 renders both lines in full.
+            elements = [
+                text(f"{kind} {height:.1f}ft", x=36, y=-1, font="normal",
+                     color="#2B7FFFFF", align="top_mid", id="line1"),
+                text(when_local.strftime("%-I:%M %p"), x=36, y=7, font="normal",
+                     color="#FFFFFFFF", align="top_mid", id="line2"),
+            ]
+
+    try:
+        draw(elements)
+    except urllib.error.HTTPError as e:
+        # A higher-priority app owns the screen: keep ticking and retry next second.
+        if e.code != 409:
+            raise
+        print("display busy (409), retrying...")
+
+
+if __name__ == "__main__":
+    print(f"tide clock (station {STATION}) → {BASE}  (Ctrl-C to stop)")
+    try:
+        while True:
+            tick()
+            time.sleep(1.0)
+    except KeyboardInterrupt:
+        print("\nstopped.")
+    except urllib.error.HTTPError as e:
+        sys.exit(f"error: HTTP {e.code} — {e.read().decode('utf-8', 'ignore')}")
+    except urllib.error.URLError as e:
+        sys.exit(f"error: cannot reach {BASE} — {e.reason}")
