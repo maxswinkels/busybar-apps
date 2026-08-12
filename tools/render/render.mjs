@@ -102,6 +102,15 @@ function record(opts, extraArgs = []) {
 
 const hasDrawnFrame = (rec) => rec.events.some((e) => e.frame && e.frame.elements.length)
 
+// Accept `waves`, `apps/waves`, or an absolute path. Reviewing a pull request
+// means pointing this at a worktree that does not carry the tools itself.
+function resolveAppDir(slug) {
+  for (const candidate of [slug, path.resolve(ROOT, slug), path.join(ROOT, 'apps', slug)]) {
+    if (candidate && fs.existsSync(path.join(candidate, 'app.py'))) return path.resolve(candidate)
+  }
+  return null
+}
+
 // Alert apps only draw when they have something to report, so on a quiet day
 // they produce an empty recording. They carry a --test flag for exactly this;
 // use it rather than writing out a blank preview.
@@ -109,8 +118,9 @@ function recordWithFallback(opts) {
   let file = record(opts)
   let rec = JSON.parse(fs.readFileSync(file, 'utf8'))
   if (hasDrawnFrame(rec) || opts.appArgs.includes('--test')) return { file, rec }
-  const source = path.join(ROOT, 'apps', opts.slug, 'app.py')
-  const supportsTest = fs.existsSync(source) && fs.readFileSync(source, 'utf8').includes('"--test"')
+  const dir = resolveAppDir(opts.slug)
+  const source = dir && path.join(dir, 'app.py')
+  const supportsTest = source && fs.readFileSync(source, 'utf8').includes('"--test"')
   if (!supportsTest) return { file, rec }
   console.log('\nrender: nothing was drawn, retrying with --test\n')
   file = record(opts, ['--test'])
@@ -401,8 +411,9 @@ async function main() {
     : recordWithFallback(opts)
   const recPath = recorded.file
   const rec = recorded.rec
-  const slug = opts.slug || rec.app
-  const outPath = opts.out || path.join(ROOT, 'apps', slug, opts.png ? 'preview.png' : 'preview.gif')
+  const slug = path.basename(opts.slug || rec.app)
+  const appDir = resolveAppDir(opts.slug || rec.app) || path.join(ROOT, 'apps', slug)
+  const outPath = opts.out || path.join(appDir, opts.png ? 'preview.png' : 'preview.gif')
 
   let { pixels, warnings, start, limit, fps } = await renderFrames(rec, opts)
 

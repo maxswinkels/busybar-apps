@@ -25,18 +25,22 @@ that the code in the PR actually produces what the gallery will show.
 
 ## Steps
 
-1. **Get the branch.** For a PR number:
+1. **Get the branch into a worktree.** A submission is almost always based on a
+   commit older than these tools, so checking it out in place would take
+   `tools/` away with it. Use a worktree and keep running the tools from `main`:
 
    ```bash
    gh pr view <n> --json title,author,body,files,additions,deletions
-   gh pr checkout <n>
+   git fetch origin pull/<n>/head:pr<n>-review -f
+   git worktree add /tmp/pr<n> pr<n>-review
    ```
 
-   Note which app folder the PR touches; that slug drives everything below. A PR
-   should add exactly one `apps/<slug>/` folder. Read the PR body for anything
-   the author says about credentials or required arguments.
+   Both `busycheck.py` and `render.mjs` accept an absolute app folder, so every
+   command below points at `/tmp/pr<n>/apps/<slug>/` while running from this
+   checkout. Note which app folder the PR touches; a PR should add exactly one.
+   Read the PR body for anything the author says about credentials or arguments.
 
-2. **Read the code.** Open `apps/<slug>/app.py` in full before running it. You
+2. **Read the code.** Open `/tmp/pr<n>/apps/<slug>/app.py` in full before running it. You
    are about to execute a stranger's code: check what it does with the network
    and the filesystem, and that any dependency in `requirements.txt` is
    justified in the PR (only `busylib` and `requests` are pre-approved).
@@ -44,7 +48,7 @@ that the code in the PR actually produces what the gallery will show.
 3. **Validate and run.**
 
    ```bash
-   npm run check -- <slug> --run --verbose
+   python3 tools/busycheck.py /tmp/pr<n>/apps/<slug> --run --verbose
    ```
 
    This does the static pass (slug, manifest, preview dimensions, element ids,
@@ -55,7 +59,7 @@ that the code in the PR actually produces what the gallery will show.
    Then check it survives losing the screen:
 
    ```bash
-   python3 tools/busyrec.py <slug> --seconds 8 --steal-at 3
+   python3 tools/busyrec.py /tmp/pr<n>/apps/<slug> --seconds 8 --steal-at 3
    ```
 
    A higher-priority app takes over at t=3. The app must keep running and keep
@@ -64,19 +68,24 @@ that the code in the PR actually produces what the gallery will show.
 4. **Regenerate the preview and compare.**
 
    ```bash
-   npm run preview -- <slug> --seconds 6 --loop --out /tmp/review-<slug>.gif
+   node tools/render/render.mjs /tmp/pr<n>/apps/<slug> --seconds 6 --loop \
+     --out /tmp/review-<slug>.gif
    ```
 
-   Read both `/tmp/review-<slug>.gif` and the submitted `apps/<slug>/preview.gif`
-   and say whether they show the same app. A mismatch is not automatically a
-   problem (different data, different moment) but a preview showing something
-   the code cannot produce is.
+   Read both `/tmp/review-<slug>.gif` and the submitted preview and say whether
+   they show the same app. Different data or a different moment is fine. Two
+   things are not: a preview showing something the code cannot produce, and a
+   preview with no LED grid in it. The second means it was upscaled from the raw
+   72x16 framebuffer with smoothing rather than captured as LEDs, which is what
+   `CONTRIBUTING.md` means by real emulator output. It is easy to spot side by
+   side: the device font is a 1-bpp bitmap, so genuine output has hard square
+   pixels and no grey edges.
 
 5. **Check it against real hardware if it is plugged in.** Optional but worth it
    for anything doing layout work, since the stub cannot catch everything:
 
    ```bash
-   python3 tools/busyrec.py <slug> --seconds 6 --upstream 10.0.4.20
+   python3 tools/busyrec.py /tmp/pr<n>/apps/<slug> --seconds 6 --upstream 10.0.4.20
    ```
 
 6. **Write the review.** Group findings as blocking / worth fixing / nice to
@@ -85,8 +94,13 @@ that the code in the PR actually produces what the gallery will show.
    Lead with what is good about the app. Do not post it; show it and let Max
    decide.
 
-7. **Clean up.** `git checkout main` (or the branch you started on), and remove
-   any `.busyrec` files and `apps/<slug>/.venv` the run created.
+7. **Clean up.** Remove the worktree and its branch, plus anything the run
+   left behind:
+
+   ```bash
+   git worktree remove /tmp/pr<n> --force
+   git branch -D pr<n>-review
+   ```
 
 ## What to look for beyond the automated checks
 

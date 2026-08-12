@@ -313,7 +313,10 @@ def check_slug(slug, rep):
 
 def check_runtime(app_dir, slug, rep, extra_args, seconds, upstream):
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    cmd = [sys.executable, os.path.join(root, "tools", "busyrec.py"), slug,
+    # Pass the absolute folder, not the slug: reviewing a pull request means
+    # running these tools from main against a worktree that does not have them
+    # yet, so the app being checked is usually outside this checkout.
+    cmd = [sys.executable, os.path.join(root, "tools", "busyrec.py"), os.path.abspath(app_dir),
            "--seconds", str(seconds), "--json",
            "--out", os.path.join(root, ".busycheck-tmp.json")]
     if upstream:
