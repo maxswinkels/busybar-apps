@@ -470,6 +470,44 @@ CONDENSED_GLYPHS = {
     "Y": ["#...#", "#...#", ".#.#.", ".#.#.", "..#..", "..#..", "..#.."],
     "Z": ["#####", "....#", "...#.", "..#..", ".#...", "#....", "#####"],
 }
+SMALL_GLYPHS = {
+    "0": [".#.", "#.#", "#.#", "#.#", ".#."],
+    "1": [".#", "##", ".#", ".#", ".#"],
+    "2": ["##.", "..#", ".#.", "#..", "###"],
+    "3": ["##.", "..#", ".#.", "..#", "##."],
+    "4": ["..#", ".##", "#.#", "###", "..#"],
+    "5": ["###", "#..", "##.", "..#", "##."],
+    "6": [".##", "#..", "##.", "#.#", ".#."],
+    "7": ["###", "..#", ".#.", ".#.", ".#."],
+    "8": [".#.", "#.#", ".#.", "#.#", ".#."],
+    "9": [".#.", "#.#", ".##", "..#", "##."],
+    "A": [".##.", "#..#", "####", "#..#", "#..#"],
+    "B": ["###.", "#..#", "###.", "#..#", "###."],
+    "C": [".##.", "#..#", "#...", "#..#", ".##."],
+    "D": ["###.", "#..#", "#..#", "#..#", "###."],
+    "E": ["####", "#...", "###.", "#...", "####"],
+    "F": ["####", "#...", "###.", "#...", "#..."],
+    "G": [".###", "#...", "#.##", "#..#", ".###"],
+    "H": ["#..#", "#..#", "####", "#..#", "#..#"],
+    "I": ["#", "#", "#", "#", "#"],
+    "J": ["..#", "..#", "..#", "#.#", ".#."],
+    "K": ["#..#", "#.#.", "##..", "#.#.", "#..#"],
+    "L": ["#..", "#..", "#..", "#..", "###"],
+    "M": ["#...#", "##.##", "#.#.#", "#...#", "#...#"],
+    "N": ["#..#", "##.#", "#.##", "#..#", "#..#"],
+    "O": [".##.", "#..#", "#..#", "#..#", ".##."],
+    "P": ["###.", "#..#", "###.", "#...", "#..."],
+    "Q": [".##.", "#..#", "#..#", "#.#.", ".#.#"],
+    "R": ["###.", "#..#", "###.", "#..#", "#..#"],
+    "S": [".###", "#...", ".##.", "...#", "###."],
+    "T": ["###", ".#.", ".#.", ".#.", ".#."],
+    "U": ["#..#", "#..#", "#..#", "#..#", ".##."],
+    "V": ["#.#", "#.#", "#.#", ".#.", ".#."],
+    "W": ["#.#.#", "#.#.#", "#.#.#", ".#.#.", ".#.#."],
+    "X": ["#.#", "#.#", ".#.", "#.#", "#.#"],
+    "Y": ["#.#", "#.#", ".#.", ".#.", ".#."],
+    "Z": ["###", "..#", ".#.", "#..", "###"],
+}
 DISK_MASK = [".....#####.....", "...#########...", "..###########..", ".#############.", ".#############.", "###############", "###############", "###############", "###############", "###############", ".#############.", ".#############.", "..###########..", "...#########...", ".....#####....."]
 BULLET_GLYPH_OVERRIDES = {
     "G": [".#####..", "##...##.", "##......", "##......", "##...###", "##....##", "##...###", ".#####.."],
@@ -1038,16 +1076,23 @@ def _plate_pixels(hexc, hazard=False):
     return rows
 
 
-def make_status_screen(hexc, word, font="bold", hazard=False):
-    """A status page baked the way the stock busy-mode screens are authored:
-    plate + the WORD as pixels at ink rows 2-8, left-aligned at x=19 with
-    the firmware drop shadow. Baking sidesteps the text elements' 2-row
-    font leading (measured on hardware), which once pushed a line clean off
-    the panel. The route bullet and the marquee stay separate elements."""
-    rows = _plate_pixels(hexc, hazard)
+def make_status_screen(hexc, word, font="bold", motion="breathe",
+                       hazard=False):
+    """A status page authored the way the stock busy-mode screens are: the
+    WORD baked at ink rows 2-8 (left x=19, firmware shadow) onto a shaded
+    plate — compiled as a short LOOPING .anim so each screen keeps exactly
+    one living element, like the firmware's own modes:
+      breathe — calm brightness sine (dnd grammar; red plates)
+      crawl   — hazard dashes marching along rows 0/15 (keep_out grammar)
+      sweep   — a soft gradient drifting through the fill (the REROUTED
+                look)
+    Returns {"anim": bytes, "png": frame-0 PNG} — the PNG feeds previews.
+    Baking sidesteps the text elements' 2-row font leading (measured on
+    hardware), which once pushed a line clean off the panel."""
+    pal = _plate_ramp(hexc)
     table = {"bold": BULLET_GLYPHS, "condensed": CONDENSED_GLYPHS}[font]
-    x = WORD_X
     ink = set()
+    x = WORD_X
     for ch in word.upper():
         if ch == " ":
             x += 4
@@ -1061,14 +1106,66 @@ def make_status_screen(hexc, word, font="bold", hazard=False):
     if x - 1 > 70:
         raise SystemExit(f"status word {word!r} is {x - 1}px — over the "
                          "plate (52px text area)")
-    for px, py in ink:
-        if (px, py + 1) not in ink and py + 1 < 16 and rows[py + 1][px][3]:
-            p = rows[py + 1][px]
-            rows[py + 1][px] = tuple(round(v * 0.4) for v in p[:3]) + (255,)
-    for px, py in ink:
-        if rows[py][px][3]:
-            rows[py][px] = (255, 255, 255, 255)
-    return png_encode(72, 16, rows)
+    shadow = {(px, py + 1) for px, py in ink
+              if (px, py + 1) not in ink and py + 1 < 16}
+
+    n, fps = {"breathe": (32, 16), "crawl": (8, 8),
+              "sweep": (24, 15)}[motion]
+    dark = (24, 20, 2)
+    w, h, r = 70, 16, 5
+    frames_rgb = []
+    frame0_rgba = None
+    for i in range(n):
+        t = i / n
+        k = 0.93 + 0.07 * math.sin(t * 2 * math.pi) if motion == "breathe" \
+            else 1.0
+        rgba = []
+        for y in range(h):
+            if y == 0:
+                base = pal["spec"]
+            elif y == h - 1:
+                base = pal["lift"]
+            else:
+                base = _lerp(pal["top"], pal["bot"], (y - 1) / (h - 2))
+            row = [(0, 0, 0, 0)]
+            for x in range(w):
+                cx, cy = min(x, w - 1 - x), min(y, h - 1 - y)
+                if cx < r and cy < r and \
+                        (r - cx) ** 2 + (r - cy) ** 2 > r * r:
+                    row.append((0, 0, 0, 0))
+                    continue
+                edge = min(cx, cy)
+                scale = (0.25, 0.5, 0.75)[edge] if edge < 3 else 1.0
+                c = base
+                if motion == "sweep" and 0 < y < h - 1:
+                    v = 0.75 + 0.25 * math.sin(
+                        (x + y * 2 - i * 3) * math.pi / 12)
+                    c = tuple(min(255, round(cc * v)) for cc in c)
+                if hazard and y in (0, h - 1):
+                    off = i if motion == "crawl" else 0
+                    if ((x + off + y) // 4) % 2:
+                        row.append((*dark, 255))
+                        continue
+                row.append(tuple(min(255, round(cc * scale * k))
+                                 for cc in c) + (255,))
+            row.append((0, 0, 0, 0))
+            rgba.append(row)
+        for px, py in shadow:
+            if rgba[py][px][3]:
+                pp = rgba[py][px]
+                rgba[py][px] = tuple(round(v * 0.4) for v in pp[:3]) + (255,)
+        for px, py in ink:
+            if rgba[py][px][3]:
+                rgba[py][px] = (255, 255, 255, 255)
+        if frame0_rgba is None:
+            frame0_rgba = rgba
+        frames_rgb.append(b"".join(
+            bytes(v for pp in row for v in pp[:3]) for row in rgba))
+    anim = anim_encode(frames_rgb, 72, 16, fps=fps)
+    if len(anim) > 135_000:
+        raise SystemExit(f"status anim {word!r} is {len(anim)}B — over the "
+                         "cloud relay's ~150KiB request cap")
+    return {"anim": anim, "png": png_encode(72, 16, frame0_rgba)}
 
 
 def wash_anim_frames():
@@ -1104,7 +1201,7 @@ def text_width(text, font):
     """Pixel width of a status string, from the same glyph tables the
     device fonts were parsed into (status screens are all-caps)."""
     table = {"bold": BULLET_GLYPHS, "tiny": TINY_GLYPHS,
-             "condensed": CONDENSED_GLYPHS,
+             "condensed": CONDENSED_GLYPHS, "small": SMALL_GLYPHS,
              "extra_large": XL_GLYPHS}[font]
     w = 0
     for ch in text.upper():
@@ -1119,21 +1216,22 @@ def text_width(text, font):
 
 
 def build_status_assets():
-    """The five baked status screens + the wash anim, content-hash named
-    like every other asset."""
+    """The five baked status screens (looping anims + frame-0 PNGs) and
+    the wash anim, content-hash named like every other asset."""
     out = {}
-    for key, blob in (
+    for key, screen in (
             ("susp", make_status_screen("#7E1416", "NO TRAINS",
                                         font="condensed")),
             ("planned", make_status_screen("#FCC30B", "PLANNED",
-                                           hazard=True)),
+                                           motion="crawl", hazard=True)),
             ("delayed", make_status_screen("#7E1416", "DELAYED")),
             ("alertpg", make_status_screen("#7E1416", "ALERT")),
             ("track", make_status_screen("#123A7A", "REROUTED",
-                                         font="condensed"))):
-        out[key] = {"name": f"st_{key}-"
-                            f"{hashlib.sha256(blob).hexdigest()[:8]}.png",
-                    "bytes": blob}
+                                         font="condensed",
+                                         motion="sweep"))):
+        digest = hashlib.sha256(screen["anim"]).hexdigest()[:8]
+        out[key] = {"name": f"st_{key}-{digest}.anim",
+                    "bytes": screen["anim"], "png": screen["png"]}
     wash = anim_encode(wash_anim_frames(), 72, 16)
     out["wash"] = {"name": f"wash-{hashlib.sha256(wash).hexdigest()[:8]}"
                            ".anim", "bytes": wash}
@@ -1560,24 +1658,24 @@ def asset_desig(assets, route_id):
 
 
 def build_plate_screen(status_assets, screen_key, bullet_name,
-                       marquee=None, marquee_color="#FFD2CCFF"):
-    """A status page: the baked screen (plate + word, authored like the
-    stock busy-mode art), the route bullet in the icon slot, and an
-    optional tiny marquee whose ink lands on rows 10-13 (bottom_left y=15
-    with the measured 2-row descent). Element ids stay type-stable."""
-    els = [{"id": "plate", "type": "image",
+                       marquee=None, marquee_color=WHITE):
+    """A status page: the baked looping screen (plate + word + its one
+    living element), the route bullet in the icon slot, and an optional
+    marquee in the small face — top_left y=8 inks rows 10-14 with the
+    measured 2-row leading. Element ids stay type-stable."""
+    els = [{"id": "plate", "type": "animation",
             "path": status_assets[screen_key]["name"],
-            "x": 0, "y": 0, "timeout": ELEMENT_TIMEOUT}]
+            "x": 0, "y": 0, "loop": True, "timeout": ELEMENT_TIMEOUT}]
     if bullet_name:
         els.append({"id": "bullet", "type": "image", "path": bullet_name,
                     "x": 1, "y": 0, "timeout": ELEMENT_TIMEOUT})
     if marquee:
         el = {"id": "mq", "type": "text", "text": marquee,
-              "font": "tiny", "color": marquee_color,
-              "x": WORD_X, "y": 15, "align": "bottom_left",
+              "font": "small", "color": marquee_color,
+              "x": WORD_X, "y": 8, "align": "top_left",
               "timeout": ELEMENT_TIMEOUT}
         win = 69 - WORD_X + 1
-        if text_width(marquee, "tiny") > win:
+        if text_width(marquee, "small") > win:
             # scroll props only when the line actually overflows — a label
             # that fits must not carry them (firmware scrolls it anyway)
             el.update({"width": win, "scroll_rate": MARQUEE_RATE})
@@ -1586,9 +1684,9 @@ def build_plate_screen(status_assets, screen_key, bullet_name,
 
 
 def marquee_pass_secs(text):
-    """One full circular-scroll cycle for a tiny in-plate marquee — the
+    """One full circular-scroll cycle for the small in-plate marquee — the
     LVGL formula: (text_px + 15px wait gap) * 60000 / rate."""
-    return (text_width(text, "tiny") + 15) * 60.0 / MARQUEE_RATE
+    return (text_width(text, "small") + 15) * 60.0 / MARQUEE_RATE
 
 
 def build_screen(cfg, assets, arrivals, index, offset=0, alert_dot=False):
@@ -1910,7 +2008,7 @@ class App:
         work coming up."""
         a = self._alert("delays")
         if a:
-            return ("alertpg", a["head"].upper(), "#FFD2CCFF")
+            return ("alertpg", a["head"].upper(), WHITE)
         a = self._alert("suspension")
         if a:  # partial suspension while trains still run here
             mq = a["head"] + ("   " + a["period"] if a["period"] else "")
@@ -1919,7 +2017,7 @@ class App:
         if shown and shown[2] in self.track:
             sched, act = self.track[shown[2]]
             return ("track", f"THIS TRAIN RUNS ON TRACK {act} INSTEAD OF "
-                             f"{sched}", "#CADCFFFF")
+                             f"{sched}", WHITE)
         a = self._alert("planned")
         if a:
             mq = a["head"] + ("   " + a["period"] if a["period"] else "")
