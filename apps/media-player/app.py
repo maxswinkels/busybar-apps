@@ -135,7 +135,18 @@ function run() {
     const artist = jsValue(get('kMRMediaRemoteNowPlayingInfoArtist'));
     const album = jsValue(get('kMRMediaRemoteNowPlayingInfoAlbum'));
     const duration = numberValue(get('kMRMediaRemoteNowPlayingInfoDuration'));
-    const elapsed = numberValue(get('kMRMediaRemoteNowPlayingInfoElapsedTime'));
+
+    // Prefer MediaRemote's calculated playback position. Unlike the raw
+    // NowPlayingInfo elapsed field, this keeps advancing while playback is
+    // already in progress and is available immediately when this app starts.
+    let calculatedElapsed = null;
+    try {
+        if (item && item.metadata) {
+            calculatedElapsed = numberValue(item.metadata.calculatedPlaybackPosition);
+        }
+    } catch (_) {}
+    const rawElapsed = numberValue(get('kMRMediaRemoteNowPlayingInfoElapsedTime'));
+    const elapsed = calculatedElapsed !== null ? calculatedElapsed : rawElapsed;
 
     let state = 'unknown';
     if (rate !== null) state = rate > 0 ? 'playing' : 'paused';
