@@ -432,6 +432,44 @@ TINY_GLYPHS = {
     "Y": ["#...#", ".#.#.", "..#..", "..#.."],
     "Z": ["####", "..#.", ".#..", "####"],
 }
+CONDENSED_GLYPHS = {
+    "0": [".##.", "#..#", "#.##", "##.#", "#..#", "#..#", ".##."],
+    "1": ["..#.", ".##.", "#.#.", "..#.", "..#.", "..#.", "####"],
+    "2": [".##.", "#..#", "...#", "..#.", ".#..", "#...", "####"],
+    "3": [".##.", "#..#", "...#", ".##.", "...#", "#..#", ".##."],
+    "4": ["..##", ".#.#", ".#.#", "#..#", "#..#", "####", "...#"],
+    "5": ["####", "#...", "#...", "###.", "...#", "...#", "###."],
+    "6": [".##.", "#..#", "#...", "###.", "#..#", "#..#", ".##."],
+    "7": ["####", "...#", "..#.", "..#.", ".#..", ".#..", ".#.."],
+    "8": [".##.", "#..#", "#..#", ".##.", "#..#", "#..#", ".##."],
+    "9": [".##.", "#..#", "#..#", ".###", "...#", "#..#", ".##."],
+    "A": ["..#..", "..#..", ".#.#.", ".#.#.", ".###.", "#...#", "#...#"],
+    "B": ["####.", "#...#", "#...#", "####.", "#...#", "#...#", "####."],
+    "C": [".###.", "#...#", "#....", "#....", "#....", "#...#", ".###."],
+    "D": ["###..", "#..#.", "#...#", "#...#", "#...#", "#..#.", "###.."],
+    "E": ["#####", "#....", "#....", "####.", "#....", "#....", "#####"],
+    "F": ["#####", "#....", "#....", "####.", "#....", "#....", "#...."],
+    "G": [".###.", "#...#", "#....", "#.###", "#...#", "#...#", ".####"],
+    "H": ["#...#", "#...#", "#...#", "#####", "#...#", "#...#", "#...#"],
+    "I": ["###", ".#.", ".#.", ".#.", ".#.", ".#.", "###"],
+    "J": ["...#", "...#", "...#", "...#", "#..#", "#..#", ".##."],
+    "K": ["#...#", "#..#.", "#.#..", "##...", "#.#..", "#..#.", "#...#"],
+    "L": ["#...", "#...", "#...", "#...", "#...", "#...", "####"],
+    "M": ["#.....#", "##...##", "##...##", "#.#.#.#", "#.#.#.#", "#..#..#", "#..#..#"],
+    "N": ["#...#", "##..#", "##..#", "#.#.#", "#..##", "#..##", "#...#"],
+    "O": [".###.", "#...#", "#...#", "#...#", "#...#", "#...#", ".###."],
+    "P": ["####.", "#...#", "#...#", "####.", "#....", "#....", "#...."],
+    "Q": [".###.", "#...#", "#...#", "#...#", "#.#.#", "#..#.", ".##.#"],
+    "R": ["####.", "#...#", "#...#", "####.", "#...#", "#...#", "#...#"],
+    "S": [".###.", "#...#", "#....", ".###.", "....#", "#...#", ".###."],
+    "T": ["#####", "..#..", "..#..", "..#..", "..#..", "..#..", "..#.."],
+    "U": ["#...#", "#...#", "#...#", "#...#", "#...#", "#...#", ".###."],
+    "V": ["#...#", "#...#", "#...#", ".#.#.", ".#.#.", "..#..", "..#.."],
+    "W": ["#.....#", "#..#..#", "#..#..#", "#.#.#.#", "#.#.#.#", ".#...#.", ".#...#."],
+    "X": ["#...#", "#...#", ".#.#.", "..#..", ".#.#.", "#...#", "#...#"],
+    "Y": ["#...#", "#...#", ".#.#.", ".#.#.", "..#..", "..#..", "..#.."],
+    "Z": ["#####", "....#", "...#.", "..#..", ".#...", "#....", "#####"],
+}
 DISK_MASK = [".....#####.....", "...#########...", "..###########..", ".#############.", ".#############.", "###############", "###############", "###############", "###############", "###############", ".#############.", ".#############.", "..###########..", "...#########...", ".....#####....."]
 BULLET_GLYPH_OVERRIDES = {
     "G": [".#####..", "##...##.", "##......", "##......", "##...###", "##....##", "##...###", ".#####.."],
@@ -963,12 +1001,17 @@ def _plate_ramp(hexc):
     }
 
 
-def make_plate(hexc, hazard=False):
-    """The busy-mode box as a full-screen RGBA PNG: 1px specular top,
-    vertical ramp, lifted bottom edge, 3px corner vignette, radius-5
-    corners (transparent). `hazard` stripes the top and bottom rows."""
+WORD_INK_TOP = 2    # status word ink rows 2-8; marquee inks 10-13 below it
+WORD_X = 19         # left-aligned after the bullet slot, firmware style
+
+
+def _plate_pixels(hexc, hazard=False):
+    """The busy-mode box as an RGBA grid: 1px side inset (the stock plates
+    span cols 1-70), 1px specular top, vertical ramp, lifted bottom edge,
+    3px corner vignette, radius-5 corners. `hazard` lays dashed stripes on
+    the top and bottom rows (keep_out grammar)."""
     pal = _plate_ramp(hexc)
-    w, h, r = 72, 16, 5
+    w, h, r = 70, 16, 5
     dark = (24, 20, 2, 255)
     rows = []
     for y in range(h):
@@ -978,7 +1021,7 @@ def make_plate(hexc, hazard=False):
             base = pal["lift"]
         else:
             base = _lerp(pal["top"], pal["bot"], (y - 1) / (h - 2))
-        row = []
+        row = [(0, 0, 0, 0)]  # left inset column
         for x in range(w):
             cx, cy = min(x, w - 1 - x), min(y, h - 1 - y)
             if cx < r and cy < r and (r - cx) ** 2 + (r - cy) ** 2 > r * r:
@@ -990,8 +1033,42 @@ def make_plate(hexc, hazard=False):
                 row.append(dark)
             else:
                 row.append(tuple(round(c * scale) for c in base) + (255,))
+        row.append((0, 0, 0, 0))  # right inset column
         rows.append(row)
-    return png_encode(w, h, rows)
+    return rows
+
+
+def make_status_screen(hexc, word, font="bold", hazard=False):
+    """A status page baked the way the stock busy-mode screens are authored:
+    plate + the WORD as pixels at ink rows 2-8, left-aligned at x=19 with
+    the firmware drop shadow. Baking sidesteps the text elements' 2-row
+    font leading (measured on hardware), which once pushed a line clean off
+    the panel. The route bullet and the marquee stay separate elements."""
+    rows = _plate_pixels(hexc, hazard)
+    table = {"bold": BULLET_GLYPHS, "condensed": CONDENSED_GLYPHS}[font]
+    x = WORD_X
+    ink = set()
+    for ch in word.upper():
+        if ch == " ":
+            x += 4
+            continue
+        g = table[ch]
+        for gy, grow in enumerate(g):
+            for gx, c in enumerate(grow):
+                if c == "#":
+                    ink.add((x + gx, WORD_INK_TOP + gy))
+        x += len(g[0]) + 1
+    if x - 1 > 70:
+        raise SystemExit(f"status word {word!r} is {x - 1}px — over the "
+                         "plate (52px text area)")
+    for px, py in ink:
+        if (px, py + 1) not in ink and py + 1 < 16 and rows[py + 1][px][3]:
+            p = rows[py + 1][px]
+            rows[py + 1][px] = tuple(round(v * 0.4) for v in p[:3]) + (255,)
+    for px, py in ink:
+        if rows[py][px][3]:
+            rows[py][px] = (255, 255, 255, 255)
+    return png_encode(72, 16, rows)
 
 
 def wash_anim_frames():
@@ -1027,6 +1104,7 @@ def text_width(text, font):
     """Pixel width of a status string, from the same glyph tables the
     device fonts were parsed into (status screens are all-caps)."""
     table = {"bold": BULLET_GLYPHS, "tiny": TINY_GLYPHS,
+             "condensed": CONDENSED_GLYPHS,
              "extra_large": XL_GLYPHS}[font]
     w = 0
     for ch in text.upper():
@@ -1041,13 +1119,21 @@ def text_width(text, font):
 
 
 def build_status_assets():
-    """Plates + the wash anim, content-hash named like every other asset."""
+    """The five baked status screens + the wash anim, content-hash named
+    like every other asset."""
     out = {}
-    for key, blob in (("plate_red", make_plate("#7E1416")),
-                      ("plate_yellow", make_plate("#FCC30B", hazard=True)),
-                      ("plate_blue", make_plate("#123A7A"))):
-        out[key] = {"name": f"{key}-{hashlib.sha256(blob).hexdigest()[:8]}"
-                            ".png", "bytes": blob}
+    for key, blob in (
+            ("susp", make_status_screen("#7E1416", "NO TRAINS",
+                                        font="condensed")),
+            ("planned", make_status_screen("#FCC30B", "PLANNED",
+                                           hazard=True)),
+            ("delayed", make_status_screen("#7E1416", "DELAYED")),
+            ("alertpg", make_status_screen("#7E1416", "ALERT")),
+            ("track", make_status_screen("#123A7A", "REROUTED",
+                                         font="condensed"))):
+        out[key] = {"name": f"st_{key}-"
+                            f"{hashlib.sha256(blob).hexdigest()[:8]}.png",
+                    "bytes": blob}
     wash = anim_encode(wash_anim_frames(), 72, 16)
     out["wash"] = {"name": f"wash-{hashlib.sha256(wash).hexdigest()[:8]}"
                            ".anim", "bytes": wash}
@@ -1473,35 +1559,24 @@ def asset_desig(assets, route_id):
     return d if d in assets else base_desig(d)
 
 
-def build_plate_screen(status_assets, plate_key, bullet_name, lines,
+def build_plate_screen(status_assets, screen_key, bullet_name,
                        marquee=None, marquee_color="#FFD2CCFF"):
-    """A busy-mode plate page: plate asset + bullet in the icon slot +
-    stacked bold lines (shadow copy under each, the truvo treatment) +
-    an optional tiny in-plate marquee. Element ids stay type-stable."""
+    """A status page: the baked screen (plate + word, authored like the
+    stock busy-mode art), the route bullet in the icon slot, and an
+    optional tiny marquee whose ink lands on rows 10-13 (bottom_left y=15
+    with the measured 2-row descent). Element ids stay type-stable."""
     els = [{"id": "plate", "type": "image",
-            "path": status_assets[plate_key]["name"],
+            "path": status_assets[screen_key]["name"],
             "x": 0, "y": 0, "timeout": ELEMENT_TIMEOUT}]
-    x0a, x1a = 4, 68
     if bullet_name:
         els.append({"id": "bullet", "type": "image", "path": bullet_name,
                     "x": 1, "y": 0, "timeout": ELEMENT_TIMEOUT})
-        x0a = 19
-    for i, (text, y) in enumerate(lines):
-        w = text_width(text, "bold")
-        x = x0a + max(0, x1a - x0a - w) // 2
-        els.append({"id": f"l{i}s", "type": "text", "text": text,
-                    "font": "bold", "color": "#00000091", "x": x,
-                    "y": y + 1, "align": "top_left",
-                    "timeout": ELEMENT_TIMEOUT})
-        els.append({"id": f"l{i}", "type": "text", "text": text,
-                    "font": "bold", "color": WHITE, "x": x, "y": y,
-                    "align": "top_left", "timeout": ELEMENT_TIMEOUT})
     if marquee:
         el = {"id": "mq", "type": "text", "text": marquee,
               "font": "tiny", "color": marquee_color,
-              "x": x0a, "y": 15, "align": "bottom_left",
+              "x": WORD_X, "y": 15, "align": "bottom_left",
               "timeout": ELEMENT_TIMEOUT}
-        win = x1a - x0a + 2
+        win = 69 - WORD_X + 1
         if text_width(marquee, "tiny") > win:
             # scroll props only when the line actually overflows — a label
             # that fits must not carry them (firmware scrolls it anyway)
@@ -1659,21 +1734,23 @@ class App:
         the ordinary card (with the amber dot during live alerts)."""
         if self.status_assets:
             if not self.arrivals:
-                # two stacked lines fill the plate; the headline detail
-                # rides the periodic alert page instead (16px fits two
-                # bold lines OR a marquee, not both)
                 a = self._alert("suspension")
                 if a:
+                    mq = a["head"] + ("   " + a["period"]
+                                      if a["period"] else "")
                     return build_plate_screen(
-                        self.status_assets, "plate_red",
+                        self.status_assets, "susp",
                         self._status_bullet(a),
-                        [("NO", 1), ("TRAINS", 8)]), "plate_susp"
+                        marquee=mq.upper()), "plate_susp"
                 a = self._alert("planned")
                 if a:
+                    mq = a["head"] + ("   " + a["period"]
+                                      if a["period"] else "")
                     return build_plate_screen(
-                        self.status_assets, "plate_yellow",
+                        self.status_assets, "planned",
                         self._status_bullet(a),
-                        [("PLANNED", 1), ("WORK", 8)]), "plate_plan"
+                        marquee=mq.upper(),
+                        marquee_color="#201A02FF"), "plate_plan"
             shown = self.displayed()
             if shown and shown[2] in self.held:
                 secs, stop = self.held[shown[2]]
@@ -1681,11 +1758,11 @@ class App:
                 bullet = self.assets[
                     asset_desig(self.assets, shown[1])]["bullet_name"]
                 return build_plate_screen(
-                    self.status_assets, "plate_red", bullet,
-                    [("DELAYED", 1)],
+                    self.status_assets, "delayed", bullet,
                     marquee=f"HELD {int(secs // 60)} MIN AT {name}".upper()
                 ), "plate_delay"
-        dot = bool(self.status_assets and self._alert("delays"))
+        dot = bool(self.status_assets
+                   and self._alert("delays", "suspension", "planned"))
         els = build_screen(self.cfg, self.assets, self.arrivals, self.index,
                            offset, alert_dot=dot)
         return els, ("card" if self.arrivals else "msg") + \
@@ -1833,17 +1910,20 @@ class App:
         work coming up."""
         a = self._alert("delays")
         if a:
-            return ("plate_red", [("ALERT", 1)], a["head"].upper(),
-                    "#FFD2CCFF")
+            return ("alertpg", a["head"].upper(), "#FFD2CCFF")
+        a = self._alert("suspension")
+        if a:  # partial suspension while trains still run here
+            mq = a["head"] + ("   " + a["period"] if a["period"] else "")
+            return ("susp", mq.upper(), "#FFD2CCFF")
         shown = self.displayed()
         if shown and shown[2] in self.track:
-            return ("plate_blue", [("EXPRESS", 1), ("TRACK", 8)],
-                    None, None)
+            sched, act = self.track[shown[2]]
+            return ("track", f"THIS TRAIN RUNS ON TRACK {act} INSTEAD OF "
+                             f"{sched}", "#CADCFFFF")
         a = self._alert("planned")
         if a:
             mq = a["head"] + ("   " + a["period"] if a["period"] else "")
-            return ("plate_yellow", [("PLANNED", 1)],
-                    mq.upper(), "#201A02FF")
+            return ("planned", mq.upper(), "#201A02FF")
         return None
 
     async def _page_recover(self):
@@ -1871,12 +1951,12 @@ class App:
         page = self._pick_page()
         if not page or not self.status_assets:
             return
-        plate_key, lines, marquee, mcolor = page
+        screen_key, marquee, mcolor = page
         shown = self.displayed()
         bullet = (self.assets[asset_desig(self.assets, shown[1])]
                   ["bullet_name"] if shown else self._status_bullet())
-        els = build_plate_screen(self.status_assets, plate_key, bullet,
-                                 lines, marquee=marquee,
+        els = build_plate_screen(self.status_assets, screen_key, bullet,
+                                 marquee=marquee,
                                  marquee_color=mcolor or "#FFD2CCFF")
         hold = (min(12.0, max(4.0, marquee_pass_secs(marquee) + 0.5))
                 if marquee else 5.0)
