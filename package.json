@@ -8,8 +8,11 @@
   "scripts": {
     "dev": "astro dev",
     "build": "astro build",
-    "preview": "astro preview",
+    "serve": "astro preview",
     "astro": "astro",
+    "preview": "node tools/render/render.mjs",
+    "record": "python3 tools/busyrec.py",
+    "check": "python3 tools/busycheck.py",
     "worker:dev": "cd workers/favorites && npx wrangler dev",
     "worker:deploy": "cd workers/favorites && npx wrangler deploy"
   },
@@ -21,5 +24,9 @@
     "astro": "^5.0.0",
     "astro-icon": "^1.1.0",
     "zod": "^3.22.0"
+  },
+  "devDependencies": {
+    "@napi-rs/canvas": "^1.0.5",
+    "gifenc": "^1.0.3"
   }
 }
