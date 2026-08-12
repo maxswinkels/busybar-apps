@@ -383,7 +383,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser(
         prog="busycheck",
         description="Validate gallery apps against CONTRIBUTING.md.")
-    parser.add_argument("app", nargs="?", help="app slug or folder")
+    parser.add_argument("app", nargs="*", help="app slug or folder (repeatable)")
     parser.add_argument("--all", action="store_true", help="check every app in apps/")
     parser.add_argument("--run", action="store_true",
                         help="also run the app and check its behaviour")
@@ -392,8 +392,14 @@ def main(argv=None):
     parser.add_argument("--verbose", "-v", action="store_true", help="include notes")
     parser.add_argument("--strict", action="store_true",
                         help="treat warnings as failures too")
-    args, rest = parser.parse_known_args(argv)
-    args.app_args = rest[1:] if rest and rest[0] == "--" else []
+    # Split on `--` before parsing so app arguments are never mistaken for ours.
+    raw = list(sys.argv[1:] if argv is None else argv)
+    app_args = []
+    if "--" in raw:
+        cut = raw.index("--")
+        raw, app_args = raw[:cut], raw[cut + 1:]
+    args = parser.parse_args(raw)
+    args.app_args = app_args
 
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     apps_dir = os.path.join(root, "apps")
@@ -401,13 +407,18 @@ def main(argv=None):
         targets = [os.path.join(apps_dir, d) for d in sorted(os.listdir(apps_dir))
                    if os.path.isfile(os.path.join(apps_dir, d, "app.py"))]
     elif args.app:
-        candidate = args.app if os.path.isdir(args.app) else os.path.join(apps_dir, args.app)
-        if not os.path.isdir(candidate):
-            sys.exit("busycheck: no such app %r" % args.app)
-        targets = [candidate]
+        targets = []
+        for name in args.app:
+            candidate = name if os.path.isdir(name) else os.path.join(apps_dir, name)
+            if not os.path.isdir(candidate):
+                sys.exit("busycheck: no such app %r" % name)
+            targets.append(candidate)
     else:
         parser.print_help()
         return 2
+
+    if args.run and len(targets) > 1 and args.app_args:
+        sys.exit("busycheck: --run with app arguments only makes sense for a single app")
 
     print("busycheck: %d app(s)\n" % len(targets))
     reports = [check_app(t, args) for t in targets]
