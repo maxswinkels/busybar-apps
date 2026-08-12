@@ -755,7 +755,7 @@ def _layout_parts(np: NowPlaying, title_color=DEFAULT_TITLE_COLOR, artist_color=
 
     if not np.active:
         return {
-            "mode": "idle", "line1": "NOW PLAYING", "line2": "Waiting for Media",
+            "mode": "idle", "line1": "NOW PLAYING", "line2": "Waiting for media",
             "line1_color": DIM, "line2_color": DIM, "left_width": 72,
             "counter_width": 0,
         }
@@ -774,8 +774,11 @@ def _layout_parts(np: NowPlaying, title_color=DEFAULT_TITLE_COLOR, artist_color=
     else:
         line2 = "Playing" if np.state == "playing" else "Paused"
 
-    counter_width = (len(counter) * 4 + 2) if counter else 0
-    left_width = max(12, 72 - counter_width - (2 if counter else 0))
+    # The BUSY Bar small font advances by about 3 px per character.
+    # Reserve the counter width plus an explicit 6 px visual gap so the
+    # artist/source text never overlaps the right-aligned time counter.
+    counter_width = (len(counter) * 3) if counter else 0
+    left_width = max(12, 72 - counter_width - (6 if counter else 0))
     return {
         "mode": "active", "line1": line1, "line2": line2,
         "line1_color": title_color,
