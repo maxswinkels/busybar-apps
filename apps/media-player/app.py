@@ -406,29 +406,73 @@ class InputListener:
 
     def _run(self):
         try:
-            asyncio.run(self._listen())
+            asyncio.run(self._listen_forever())
         except Exception as exc:
             self.available = False
             self.error = str(exc)
-            print(f"controls: BUSY Bar input unavailable: {exc}")
+            print(f"controls: listener stopped: {exc}")
 
-    async def _listen(self):
+    async def _listen_forever(self):
+        """Keep the BUSY Bar input WebSocket alive across Wi-Fi dropouts.
+
+        A broken connection is treated as transient. Reconnect with exponential
+        backoff (1, 2, 4, 8, ... up to 15 seconds), reset the backoff after a
+        successful connection, and re-send the status-stream enable handshake
+        every time a new WebSocket session is established.
+        """
         import websockets
+
         url = _ws_url(self._address, self._token)
-        async with websockets.connect(
-            url, max_size=4 * 1024 * 1024, ping_interval=20, ping_timeout=20
-        ) as ws:
-            await ws.send(json.dumps({"enable": True}))
-            async for message in ws:
+        backoff = 1.0
+        max_backoff = 15.0
+        connected_once = False
+
+        while not self._stop.is_set():
+            try:
+                async with websockets.connect(
+                    url,
+                    max_size=4 * 1024 * 1024,
+                    ping_interval=20,
+                    ping_timeout=20,
+                    close_timeout=3,
+                    open_timeout=8,
+                ) as ws:
+                    await ws.send(json.dumps({"enable": True}))
+                    if connected_once:
+                        print("controls: BUSY Bar input reconnected")
+                    connected_once = True
+                    self.available = True
+                    self.error = None
+                    backoff = 1.0
+
+                    async for message in ws:
+                        if self._stop.is_set():
+                            return
+                        if isinstance(message, str):
+                            continue
+                        try:
+                            for event in _decode_state_inputs(bytes(message)):
+                                self._queue.put(event)
+                        except Exception as exc:
+                            print(f"controls: ignored malformed status frame: {exc}")
+
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
                 if self._stop.is_set():
-                    break
-                if isinstance(message, str):
-                    continue
-                try:
-                    for event in _decode_state_inputs(bytes(message)):
-                        self._queue.put(event)
-                except Exception as exc:
-                    print(f"controls: ignored malformed status frame: {exc}")
+                    return
+                self.available = False
+                self.error = str(exc)
+                print(
+                    f"controls: BUSY Bar input disconnected: {exc}; "
+                    f"reconnecting in {backoff:g}s"
+                )
+                # Event.wait-style sleep would block the asyncio loop; poll the
+                # stop flag in short chunks so Ctrl-C/shutdown stays responsive.
+                deadline = time.monotonic() + backoff
+                while not self._stop.is_set() and time.monotonic() < deadline:
+                    await asyncio.sleep(min(0.25, deadline - time.monotonic()))
+                backoff = min(max_backoff, backoff * 2.0)
 
 
 def process_control_events(listener: InputListener, last_wheel_at: float, cooldown: float, invert_dial: bool = False):
