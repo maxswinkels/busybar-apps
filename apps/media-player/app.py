@@ -29,6 +29,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import unicodedata
 from dataclasses import dataclass, asdict
 from typing import Optional
 
@@ -821,6 +822,38 @@ def rect(el_id, x, y, w, h, color):
 # Layout
 # ---------------------------------------------------------------------------
 
+def sanitize_display_text(value: Optional[str]) -> Optional[str]:
+    """Convert metadata to the ASCII subset accepted by the BUSY Bar renderer."""
+    if value is None:
+        return None
+
+    value = str(value)
+    replacements = {
+        "\u2018": "'", "\u2019": "'", "\u201a": "'",
+        "\u201c": '"', "\u201d": '"',
+        "\u2013": "-", "\u2014": "-", "\u2212": "-",
+        "\u2026": "...", "\u00a0": " ",
+    }
+    for source, target in replacements.items():
+        value = value.replace(source, target)
+
+    # Preserve useful Latin approximations (e.g. é -> e), then discard
+    # characters unsupported by the device font (Japanese, emoji, etc.).
+    value = unicodedata.normalize("NFKD", value)
+    value = value.encode("ascii", "ignore").decode("ascii")
+    value = "".join(ch if 32 <= ord(ch) <= 126 else " " for ch in value)
+    value = " ".join(value.split())
+    return value or None
+
+
+def sanitize_now_playing(np: NowPlaying) -> NowPlaying:
+    np.app = sanitize_display_text(np.app)
+    np.title = sanitize_display_text(np.title)
+    np.artist = sanitize_display_text(np.artist)
+    np.album = sanitize_display_text(np.album)
+    return np
+
+
 def fmt_time(v: Optional[float]) -> str:
     if v is None:
         return "--:--"
@@ -1071,6 +1104,10 @@ def main() -> int:
                 np = demo_frame(time.monotonic() - demo_start)
             else:
                 np = tracker.update(backend())
+
+            # Sanitize only at the display boundary: backend metadata remains
+            # Unicode-capable, while unsupported glyphs cannot break /api/draw.
+            np = sanitize_now_playing(np)
 
             if args.print_only:
                 if args.json:
