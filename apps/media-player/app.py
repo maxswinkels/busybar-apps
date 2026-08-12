@@ -149,8 +149,18 @@ function run() {
             calculatedElapsed = numberValue(item.metadata.calculatedPlaybackPosition);
         }
     } catch (_) {}
-    const rawElapsed = numberValue(get('kMRMediaRemoteNowPlayingInfoElapsedTime'));
-    const elapsed = calculatedElapsed !== null ? calculatedElapsed : rawElapsed;
+    const rawElapsed = numberValue(
+        get('kMRMediaRemoteNowPlayingInfoElapsedTime')
+    );
+
+    // calculatedPlaybackPosition is useful during active playback, but may
+    // continue extrapolating from stale timing metadata after a pause.
+    const useCalculatedElapsed =
+        rate !== null && rate > 0 && calculatedElapsed !== null;
+
+    const elapsed = useCalculatedElapsed
+        ? calculatedElapsed
+        : rawElapsed;
 
     let state = 'unknown';
     if (rate !== null) state = rate > 0 ? 'playing' : 'paused';
@@ -158,7 +168,7 @@ function run() {
     return JSON.stringify({ok:true, active:!!(title || artist || album || app),
         app:app, bundle_id:bundleId, title:title, artist:artist, album:album,
         duration:duration, elapsed:elapsed, playback_rate:rate,
-        elapsed_live:(calculatedElapsed !== null), state:state});
+        elapsed_live:useCalculatedElapsed, state:state});
 }
 '''
 
