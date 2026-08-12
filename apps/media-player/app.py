@@ -755,7 +755,7 @@ def _layout_parts(np: NowPlaying, title_color=DEFAULT_TITLE_COLOR, artist_color=
 
     if not np.active:
         return {
-            "mode": "idle", "line1": "NOW PLAYING", "line2": "Nothing playing",
+            "mode": "idle", "line1": "NOW PLAYING", "line2": "Waiting for Media",
             "line1_color": DIM, "line2_color": DIM, "left_width": 72,
             "counter_width": 0,
         }
