@@ -263,8 +263,16 @@ async function renderFrames(rec, opts) {
 
   const start = opts.start != null ? opts.start : drawn[0].t
   // Stop before the app clears the screen on its way out, or we would capture
-  // the emulator's idle scroller instead of the app.
-  const cleared = frames.find((f) => f.t > start && (!f.elements || !f.elements.length))
+  // the emulator's idle scroller instead of the app. A blank that is redrawn
+  // right away is not an exit: swapping screens means DELETE then POST, which
+  // leaves one empty frame between two full ones. Only a blank that HOLDS ends
+  // the window, or a multi-screen app gets cut off at its first transition.
+  const BLANK_HOLD = 0.25
+  const cleared = frames.find((f, i) => {
+    if (f.t <= start || (f.elements && f.elements.length)) return false
+    const next = frames.slice(i + 1).find((g) => g.elements && g.elements.length)
+    return !next || next.t - f.t >= BLANK_HOLD
+  })
   const limit = Math.min(start + opts.seconds, cleared ? cleared.t : Infinity,
     (rec.duration_ms || 0) / 1000)
   const fps = opts.fps === 'auto' ? autoFps(drawn, start, limit) : opts.fps
@@ -322,6 +330,13 @@ async function renderFrames(rec, opts) {
     renderer.start()                             // hands us its frame callback via rAF
     if (!rafSlot.pending) throw new Error('renderer did not register a frame callback')
 
+    // NOTE: uploaded .anim assets never make it into a pass. The renderer pulls
+    // them with fetch() and caches them per renderer, so the promise cannot
+    // settle inside this loop and a repeat pass starts from an empty cache.
+    // Yielding per frame does fix it, but do not: the decoder is greyscale-only,
+    // so a colour plate (nyc-subway's ALERT/REROUTED/PLANNED) then renders as
+    // grey streaks. Skipping it is the lesser wrong until that decoder can read
+    // colour. Previews for those apps have to come off real hardware.
     const out = []
     for (let i = 0; i < count; i++) {
       const t = start + i * step

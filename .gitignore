@@ -14,3 +14,4 @@ __pycache__/
 *.busyrec
 .busyrec-tmp.json
 apps/*/.venv/
+.playwright-mcp
