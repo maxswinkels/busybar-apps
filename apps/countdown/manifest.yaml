@@ -1,0 +1,8 @@
+name: Countdown
+author: LuisWollenschneider
+description: Animated countdown to any moment, coarse when far off and mm:ss in the final hour, with amber/red thresholds and a red count-up once it passes.
+tags:
+  - clock
+  - countdown
+  - info
+preview: ./preview.gif
