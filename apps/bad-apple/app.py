@@ -27,7 +27,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
-APP = "busy-apple"
+APP = "bad-apple"
 DISPLAY_WIDTH = 72
 DISPLAY_HEIGHT = 16
 PRIORITY = 100

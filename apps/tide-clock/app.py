@@ -13,7 +13,7 @@ import time
 import urllib.error
 import urllib.request
 
-APP = "daninsc.tideclock"
+APP = "tide-clock"
 
 # ---------------------------------------------------------------------------
 # BUSY Bar HTTP API — self-contained, stdlib only.
