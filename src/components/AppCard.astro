@@ -1,6 +1,8 @@
 ---
 import type { CollectionEntry } from 'astro:content';
 import FavoriteButton from './FavoriteButton.astro';
+import { authorSlug } from '../lib/authors';
+import { getAddedDates } from '../lib/added-dates';
 
 interface Props {
   app: CollectionEntry<'apps'>;
@@ -10,9 +12,19 @@ interface Props {
 const { app, slug } = Astro.props;
 const { name, author, description, tags, preview } = app.data;
 const baseUrl = import.meta.env.BASE_URL;
+
+// Haystack for the gallery search box: name, author, description and tags.
+const search = [name, author, description, ...tags].join(' ').toLowerCase();
+const added = (await getAddedDates()).get(slug) ?? '';
 ---
 
-<article class="app-card" data-tags={tags.join(' ')}>
+<article
+  class="app-card"
+  data-slug={slug}
+  data-tags={tags.join(' ')}
+  data-search={search}
+  data-added={added}
+>
   <div class="app-preview">
     <div class="device">
       <img class="device-illu" src={`${baseUrl}brand/busybar-device.png`} alt="" aria-hidden="true" />
@@ -24,7 +36,9 @@ const baseUrl = import.meta.env.BASE_URL;
       <h3 class="app-name"><a class="app-link" href={`${baseUrl}apps/${slug}/`}>{name}</a></h3>
       <FavoriteButton slug={slug} name={name} />
     </div>
-    <p class="app-author">@{author}</p>
+    <p class="app-author">
+      <a class="app-author-link" href={`${baseUrl}authors/${authorSlug(author)}/`}>@{author}</a>
+    </p>
     <p class="app-description">{description}</p>
     <div class="app-tags">
       {tags.map(tag => (
@@ -38,7 +52,7 @@ const baseUrl = import.meta.env.BASE_URL;
   .app-card {
     display: block;
     background: var(--color-surface);
-    border-radius: 24px;
+    border-radius: var(--radius-lg);
     box-shadow: var(--glass-shadow);
     overflow: hidden;
     transition: box-shadow var(--transition-normal);
@@ -119,6 +133,18 @@ const baseUrl = import.meta.env.BASE_URL;
     font-size: 13px;
     color: var(--color-text-secondary);
     font-family: var(--font-mono);
+  }
+
+  /* Lift the author out from under the card-wide click target of .app-link::after. */
+  .app-author-link {
+    position: relative;
+    z-index: 1;
+    color: inherit;
+  }
+
+  .app-author-link:hover {
+    color: var(--color-primary);
+    text-decoration: none;
   }
 
   .app-description {

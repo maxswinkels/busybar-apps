@@ -243,6 +243,12 @@ Once you open the PR:
 
 Fix any errors and push again; the PR updates automatically.
 
+CI is the smaller half. Someone also runs your app, takes the screen away from it
+and regenerates your preview to compare. [MAINTAINERS.md](MAINTAINERS.md)
+describes what that review looks at, so you can check your own app against it
+first. If you would like to help review other people's submissions, that page
+also explains how to sign up.
+
 ## Tips
 
 - **Keep it simple:** A single focused app is better than a complex, feature-heavy one

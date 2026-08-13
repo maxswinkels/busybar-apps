@@ -1,0 +1,109 @@
+---
+// Bump the version suffix to show a new banner to people who dismissed the old one.
+const STORAGE_KEY = 'busybar-banner:maintainers-v1';
+const guideUrl = 'https://github.com/maxswinkels/busybar-apps/blob/main/MAINTAINERS.md';
+const signupUrl = 'https://github.com/maxswinkels/busybar-apps/issues/new?template=reviewer-signup.yml';
+---
+
+<aside class="banner" id="maintainer-banner" data-storage-key={STORAGE_KEY} hidden>
+  <div class="banner-body">
+    <p class="banner-lead">Reviewers wanted</p>
+    <p class="banner-text">
+      New apps arrive as pull requests and each one is tried out before it is merged.
+      Want to help with that?
+      <a href={guideUrl} target="_blank" rel="noopener">What a reviewer does</a> ·
+      <a href={signupUrl} target="_blank" rel="noopener">Sign up</a>
+    </p>
+  </div>
+  <button type="button" class="banner-dismiss" aria-label="Dismiss this message">
+    <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+      <path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" />
+    </svg>
+  </button>
+</aside>
+
+<script is:inline data-astro-rerun>
+  // Runs during parsing so a dismissed banner never flashes into view.
+  (function () {
+    var banner = document.getElementById('maintainer-banner');
+    if (!banner) return;
+    try {
+      if (localStorage.getItem(banner.dataset.storageKey) === 'dismissed') return;
+    } catch (e) {}
+    banner.hidden = false;
+  })();
+</script>
+
+<script>
+  const banner = document.getElementById('maintainer-banner');
+  const dismiss = banner?.querySelector('.banner-dismiss');
+
+  if (banner && dismiss) {
+    dismiss.addEventListener('click', () => {
+      banner.hidden = true;
+      try {
+        localStorage.setItem(banner.dataset.storageKey ?? '', 'dismissed');
+      } catch {}
+    });
+  }
+</script>
+
+<style>
+  .banner {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-md);
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    padding: 14px 12px 14px 16px;
+    margin-bottom: var(--sp-lg);
+  }
+
+  .banner[hidden] {
+    display: none;
+  }
+
+  .banner-body {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .banner-lead {
+    margin: 0 0 2px;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--color-text);
+  }
+
+  .banner-text {
+    margin: 0;
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--color-text-secondary);
+  }
+
+  .banner-text a {
+    font-weight: 500;
+  }
+
+  .banner-dismiss {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    padding: 0;
+    border: 1px solid var(--color-border);
+    border-radius: 50%;
+    background: #fff;
+    color: #111;
+    cursor: pointer;
+    transition: background var(--transition-fast);
+  }
+
+  .banner-dismiss:hover {
+    background: #f0f0f2;
+  }
+</style>
