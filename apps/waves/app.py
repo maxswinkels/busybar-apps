@@ -27,6 +27,9 @@ import json
 import math
 import random
 import struct
+import wave
+import io
+import hashlib
 import sys
 import time
 import urllib.error
@@ -88,8 +91,172 @@ def parse_args():
                    help="edge reflection/pile-up strength, 0..1 (default: 0.72)")
     p.add_argument("--sloshing", type=float, default=0.70,
                    help="slow bottle-like left/right slosh strength, 0..1 (default: 0.70)")
+    p.add_argument("--muted", action="store_true", help="disable thunder audio during lightning")
+    p.add_argument("--thunder-test", action="store_true", help="upload and play one thunderclap immediately, then exit")
     p.add_argument("--test", action="store_true", help="draw one frame and exit")
     return p.parse_args()
+
+
+THUNDER_ASSET = None  # resolved from the WAV content hash at runtime
+
+
+def _thunder_wav():
+    """Generate a thunderclap tuned for the BUSY Bar's tiny loudspeaker.
+
+    A physically realistic thunder recording carries a lot of energy below
+    100 Hz, which a very small speaker mostly cannot reproduce.  This version
+    deliberately moves the perceived weight upward into roughly 140-1200 Hz,
+    keeps several rolling bursts audible for seconds, and uses a short fade-in
+    to avoid the click produced by an abrupt first sample.
+    """
+    rate = 44100
+    duration = 1.25
+    count = int(rate * duration)
+    rng = random.Random(0xB05712)
+    out = bytearray()
+
+    # One-pole low-pass states. Differences between them form broad band-pass
+    # signals without external DSP dependencies:
+    #   presence: ~500-2200 Hz, body: ~150-650 Hz, weight: <~180 Hz.
+    lp_fast = 0.0
+    lp_mid = 0.0
+    lp_low = 0.0
+
+    # Irregular rolling thunder events.  The later events are intentionally
+    # strong enough to remain audible on the BUSY Bar speaker instead of
+    # disappearing into an inaudible sub-bass tail.
+    rolls = (
+        (0.05, 1.00, 3.2),
+        (0.42, 0.88, 2.6),
+        (0.92, 0.72, 2.2),
+        (1.48, 0.52, 1.9),
+    )
+
+    for i in range(count):
+        t = i / rate
+        white = rng.random() * 2.0 - 1.0
+
+        # Broad spectral bands with substantially more midrange than v11.
+        lp_fast += 0.23 * (white - lp_fast)
+        lp_mid += 0.060 * (white - lp_mid)
+        lp_low += 0.016 * (white - lp_low)
+        presence = lp_fast - lp_mid
+        body_noise = lp_mid - lp_low
+        weight_noise = lp_low
+
+        # A thunder crack rather than a digital click: it rises over ~8 ms,
+        # then decays quickly, with noisy midrange and a few resonances.
+        crack_attack = 1.0 - math.exp(-t * 125.0)
+        crack_decay = math.exp(-t * 8.5)
+        crack_env = crack_attack * crack_decay
+        crack = (
+            1.00 * presence
+            + 0.55 * body_noise
+            + 0.14 * math.sin(2.0 * math.pi * 720.0 * t)
+            + 0.12 * math.sin(2.0 * math.pi * 410.0 * t + 0.7)
+        ) * crack_env
+
+        # Each roll has a quick but non-instantaneous attack and a compact decay.
+        # Slight amplitude modulation makes the tail breathe and break up.
+        body_env = 0.0
+        presence_env = 0.0
+        for onset, strength, decay in rolls:
+            dt = t - onset
+            if dt > 0.0:
+                rise = 1.0 - math.exp(-dt * 12.0)
+                fall = math.exp(-dt * decay)
+                e = strength * rise * fall
+                body_env += e
+                presence_env += e * math.exp(-dt * 0.55)
+
+        flutter = (
+            0.78
+            + 0.11 * math.sin(2.0 * math.pi * 1.3 * t + 0.3)
+            + 0.07 * math.sin(2.0 * math.pi * 3.1 * t + 1.2)
+            + 0.04 * math.sin(2.0 * math.pi * 6.8 * t + 0.5)
+        )
+
+        # Speaker-friendly body: most energy lives above 120 Hz.  The tones are
+        # intentionally not pure fundamentals; they reinforce perceived bass on
+        # a speaker that cannot reproduce true 40-70 Hz thunder energy.
+        resonances = (
+            0.24 * math.sin(2.0 * math.pi * 148.0 * t + 0.2)
+            + 0.17 * math.sin(2.0 * math.pi * 196.0 * t + 1.0)
+            + 0.11 * math.sin(2.0 * math.pi * 286.0 * t + 2.1)
+            + 0.055 * math.sin(2.0 * math.pi * 430.0 * t + 0.6)
+        )
+        rumble = (
+            1.45 * body_noise
+            + 0.72 * weight_noise
+            + 0.38 * presence * presence_env
+            + resonances
+        ) * body_env * flutter
+
+        # A quieter, grainy high-mid layer keeps the short tail perceptible.
+        air = presence * (0.13 + 0.10 * math.sin(2.0 * math.pi * 0.73 * t)) * body_env
+
+        # Fade the final ~0.45 second smoothly.  A tiny master fade-in eliminates any
+        # discontinuity at sample zero even if the decoder starts immediately.
+        fade_in = min(1.0, t / 0.012)
+        fade_out = clamp((duration - t) / 0.25)
+        sample = (0.62 * crack + 0.84 * rumble + 0.30 * air) * fade_in * fade_out
+
+        # Strong soft compression is intentional: it keeps later rolls audible
+        # while preventing the initial crack from clipping.
+        sample = math.tanh(sample * 2.25) * 0.88
+        out += struct.pack("<h", int(max(-1.0, min(1.0, sample)) * 32767))
+
+    bio = io.BytesIO()
+    with wave.open(bio, "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(rate)
+        wf.writeframes(bytes(out))
+    return bio.getvalue()
+
+def _upload_audio(host):
+    """Upload thunder under a content-addressed filename.
+
+    Reusing a fixed path such as thunder.wav can leave the device playing a
+    previously decoded/cached asset even after new bytes were uploaded.  The
+    SHA-256 suffix makes every materially different thunder waveform a new
+    device path, while identical launches reuse the same stable name.
+    """
+    global THUNDER_ASSET
+    wav = _thunder_wav()
+    digest = hashlib.sha256(wav).hexdigest()[:12]
+    THUNDER_ASSET = f"thunder_{digest}.wav"
+    path = "/api/assets/upload?" + urllib.parse.urlencode({"application_name": APP, "file": THUNDER_ASSET})
+    req = urllib.request.Request(_base(host) + path, data=wav, method="POST",
+                                 headers={"Content-Type": "application/octet-stream"})
+    with urllib.request.urlopen(req, timeout=15):
+        pass
+    return THUNDER_ASSET, len(wav)
+
+
+def _play_thunder(host):
+    if not THUNDER_ASSET:
+        raise RuntimeError("thunder asset has not been uploaded")
+    body = json.dumps({"application_name": APP, "path": THUNDER_ASSET}).encode()
+    req = urllib.request.Request(_base(host) + "/api/audio/play", data=body, method="POST",
+                                 headers={"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=5):
+            pass
+    except urllib.error.HTTPError as e:
+        # Audio already busy should not interrupt the animation.
+        if e.code not in (409, 410):
+            raise
+
+
+def _stop_audio(host):
+    req = urllib.request.Request(_base(host) + "/api/audio/play", method="DELETE")
+    try:
+        with urllib.request.urlopen(req, timeout=5):
+            pass
+    except urllib.error.HTTPError as e:
+        if e.code not in (404, 410):
+            raise
 
 
 def _base(host):
@@ -572,6 +739,30 @@ def main():
 
     animation_speed = max(0.05, min(4.0, args.animation_speed))
     started = time.monotonic()
+    thunder_due = None
+    flash_was_on = False
+
+    if not args.muted and not args.test:
+        try:
+            asset_name, asset_bytes = _upload_audio(args.host)
+            print(f"thunder audio: ready ({asset_name}, {asset_bytes} bytes)")
+        except Exception as e:
+            print(f"warning: thunder audio unavailable ({e}); continuing silently")
+            args.muted = True
+    if args.thunder_test:
+        if args.muted:
+            sys.exit("error: --thunder-test cannot be used with --muted")
+        try:
+            print(f"playing thunder test from {THUNDER_ASSET}")
+            _play_thunder(args.host)
+            time.sleep(6.8)
+        finally:
+            try:
+                _stop_audio(args.host)
+            except Exception:
+                pass
+        return
+
     print(f"waves -> {_base(args.host)}  state={args.state} fps={fps:g} speed={animation_speed:g}x "
           f"hold={max(1.0,args.state_seconds):g}s transition={max(0.1,args.transition_seconds):g}s "
           f"walls={clamp(args.wall_feedback):.2f} slosh={clamp(args.sloshing):.2f} "
@@ -587,6 +778,17 @@ def main():
         while True:
             frame_start = time.monotonic()
             p, flash = sea.update(frame_start)
+            # Trigger one thunderclap per lightning event. A short random delay
+            # gives the flash/sound pairing a little depth without blocking frames.
+            if flash and not flash_was_on and not args.muted:
+                thunder_due = frame_start + random.uniform(0.10, 0.38)
+            flash_was_on = flash
+            if thunder_due is not None and frame_start >= thunder_due:
+                try:
+                    _play_thunder(args.host)
+                except Exception as e:
+                    print(f"warning: thunder playback failed ({e})")
+                thunder_due = None
             # Scale only the visual simulation clock. State hold/transition timers
             # intentionally remain in real seconds, so --animation-speed changes
             # how fast the water moves without changing the auto-state schedule.
@@ -602,6 +804,11 @@ def main():
     except urllib.error.URLError as e:
         sys.exit(f"error: cannot reach {_base(args.host)} - {e.reason}")
     finally:
+        if not args.muted:
+            try:
+                _stop_audio(args.host)
+            except Exception:
+                pass
         clear(args.host)
 
 
