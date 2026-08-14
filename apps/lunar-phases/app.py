@@ -93,6 +93,15 @@ TITLE_TRANSLATIONS = {
     "it": "FASI LUNARI",
 }
 
+EASTER_EGG_TRANSLATIONS = {
+    "en": ["THAT'S NO", "MOON..."],
+    "fr": ["CE N'EST PAS", "UNE LUNE..."],
+    "de": ["DAS IST KEIN", "MOND..."],
+    "es": ["ESO NO ES", "UNA LUNA..."],
+    "nl": ["DAT IS GEEN", "MAAN..."],
+    "it": ["QUELLA NON E'", "UNA LUNA..."],
+}
+
 TRANSLATIONS = {
     "en": {
         "new": "NEW MOON",
@@ -254,6 +263,10 @@ def parse_args():
     p.add_argument(
         "--debug-phase", choices=("current",) + PHASE_KEYS, default="current",
         help="force a lunar phase for testing instead of using the current phase",
+    )
+    p.add_argument(
+        "--easter-egg", action="store_true",
+        help="replace the final lunar phase with a Death Star easter egg",
     )
     p.add_argument(
         "--demo", action="store_true",
@@ -771,7 +784,54 @@ def build_animation_frame(elapsed, current_phase, language="en", font_name="smal
     return final_frame(current_phase, elapsed - total_travel - PARK_SECONDS, language, font_name), True
 
 
-def final_frame(current_phase, label_elapsed, language="en", font_name="small"):
+
+def draw_death_star(buf, x=PARK_X):
+    """Draw a compact 13px Death Star inspired pixel-art sphere."""
+    cx = x + MOON_R
+    cy = MOON_Y + MOON_R
+    for yy in range(cy - MOON_R, cy + MOON_R + 1):
+        for xx in range(cx - MOON_R, cx + MOON_R + 1):
+            dx, dy = xx - cx, yy - cy
+            rr = dx * dx + dy * dy
+            if rr > MOON_R * MOON_R:
+                continue
+            edge = math.sqrt(rr) / MOON_R
+            col = (88, 94, 104) if edge < 0.86 else (48, 53, 62)
+            if (xx + yy) % 5 == 0:
+                col = (112, 118, 126)
+            px(buf, xx, yy, col)
+    # Equatorial trench.
+    for xx in range(cx - 5, cx + 6):
+        px(buf, xx, cy + 1, (30, 34, 42))
+    # Superlaser dish in the upper-right quadrant.
+    dish_cx, dish_cy = cx + 2, cy - 2
+    for yy in range(dish_cy - 2, dish_cy + 3):
+        for xx in range(dish_cx - 2, dish_cx + 3):
+            if (xx - dish_cx) ** 2 + (yy - dish_cy) ** 2 <= 4:
+                px(buf, xx, yy, (34, 39, 48))
+    px(buf, dish_cx, dish_cy, (150, 158, 166))
+
+
+def easter_egg_frame(elapsed, language="en", font_name="small"):
+    buf = blank()
+    draw_stars(buf, elapsed, dim_for_text=True)
+    draw_death_star(buf)
+    # Localized Star Wars easter-egg quote, split for the 72x16 display.
+    col = scale(TEXT_MAIN, min(1.0, elapsed / LABEL_FADE_SECONDS))
+    lines = EASTER_EGG_TRANSLATIONS[language]
+    chosen = "small" if text_width(lines[0], font_name) > 54 else font_name
+    ys = [2, 9] if chosen == "small" else [0, 9]
+    for line, y in zip(lines, ys):
+        x0 = 18
+        tw = text_width(line, chosen)
+        x = x0 + max(0, (54 - tw) // 2)
+        draw_text(buf, line, x, y, col, x0, W, chosen)
+    return buf
+
+
+def final_frame(current_phase, label_elapsed, language="en", font_name="small", easter_egg=False):
+    if easter_egg:
+        return easter_egg_frame(label_elapsed, language, font_name)
     buf = blank()
     draw_stars(buf, label_elapsed, dim_for_text=True)
     draw_moon(buf, PARK_X, current_phase, shimmer=0.15)
@@ -797,7 +857,7 @@ def main():
     current_key = phase_key(current_phase)
     print(
         f"lunar-phases -> {_base(args.host)}  language={args.language}  "
-        f"phase={current_key}  font={args.font}  debug={args.debug_phase}  (Ctrl-C to stop)"
+        f"phase={current_key}  font={args.font}  debug={args.debug_phase}  easter_egg={args.easter_egg}  (Ctrl-C to stop)"
     )
     print("Press the top/START button to replay the lunar cycle.")
 
@@ -841,13 +901,13 @@ def main():
                     # replace the final frame with the selected language.
                     if finished:
                         label_elapsed = now - started - OUTBOUND_SECONDS - RETURN_SECONDS - PARK_SECONDS
-                        frame = final_frame(current_phase, label_elapsed, args.language, args.font)
+                        frame = final_frame(current_phase, label_elapsed, args.language, args.font, args.easter_egg)
                         active = False
                     show(args.host, frame)
                 else:
                     # Redrawing this slowly keeps the stars gently twinkling without
                     # hammering the device while the app is idle.
-                    show(args.host, final_frame(current_phase, now - started, args.language, args.font))
+                    show(args.host, final_frame(current_phase, now - started, args.language, args.font, args.easter_egg))
                 last_frame_at = now
 
             time.sleep(0.008 if active else 0.08)
