@@ -1,9 +1,0 @@
-name: Media Player
-author: robynhub
-description: Displays system-wide Now Playing information and provides media controls for BUSY Bar.
-tags:
-  - media
-  - music
-  - now-playing
-  - controls
-preview: ./preview.png

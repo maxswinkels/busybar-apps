@@ -1,9 +1,0 @@
-name: Waves Simulator
-author: robynhub
-description: A lava-lamp-like ocean animation for BUSY Bar, with colorful moving waves, smooth transitions from calm to stormy seas, realistic gradients, foam, reflections, sound and configurable speed.
-tags:
-  - weather
-  - screensaver
-  - sound
-  - info
-preview: ./preview.gif

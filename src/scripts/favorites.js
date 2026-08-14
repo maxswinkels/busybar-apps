@@ -42,8 +42,6 @@ export function initFavorites() {
           span.hidden = count === 0;
         }
       });
-      // Lets the gallery re-sort once real counts are on the page.
-      document.dispatchEvent(new CustomEvent('busybar:counts'));
     })
     .catch(() => {});
 
