@@ -1,0 +1,7 @@
+name: Pixel Runner
+author: antoninsmetana
+description: An endless jump-and-duck runner on the 72x16 panel. START jumps, OK or BACK ducks; cacti and birds come at you, the world speeds up, day turns to night. Left alone it plays itself.
+tags:
+  - game
+  - animation
+preview: ./preview.gif

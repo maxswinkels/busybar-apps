@@ -1,0 +1,6 @@
+# The buttons are the game. They arrive only as protobuf frames on
+# ws://<host>/api/status/ws, and the stdlib has no WebSocket client -- so this
+# is the one dependency, and the app degrades to playing itself without it
+# rather than refusing to start. Same pin as media-player's, the other app in
+# this repo reading the same stream. Everything else here is stdlib on 3.14.2.
+websockets>=15.0
