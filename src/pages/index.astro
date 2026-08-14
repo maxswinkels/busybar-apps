@@ -1,13 +1,7 @@
 ---
 import Layout from '../layouts/Layout.astro';
 import AppCard from '../components/AppCard.astro';
-import MaintainerBanner from '../components/MaintainerBanner.astro';
 import { getCollection } from 'astro:content';
-import { Image } from 'astro:assets';
-import { appSlug } from '../lib/authors';
-import managerShot from '../assets/busybar-manager-dashboard.png';
-
-const managerUrl = 'https://github.com/maxswinkels/busybar-manager';
 
 const apps = (await getCollection('apps')).sort((a, b) =>
   a.data.name.localeCompare(b.data.name)
@@ -17,6 +11,8 @@ const apps = (await getCollection('apps')).sort((a, b) =>
 const allTags = Array.from(
   new Set(apps.flatMap(app => app.data.tags || []))
 ).sort((a, b) => a.localeCompare(b));
+
+const baseUrl = import.meta.env.BASE_URL;
 ---
 
 <Layout title="BUSY Bar Apps · Community app gallery">
@@ -29,36 +25,8 @@ const allTags = Array.from(
       </a>
     </section>
 
-    <MaintainerBanner />
-
     <section class="apps-section">
       <h2>All apps</h2>
-
-      <div class="gallery-controls">
-        <div class="search-field">
-          <label class="visually-hidden" for="app-search">Search apps</label>
-          <svg class="search-icon" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
-            <circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2" />
-            <path d="M16.5 16.5L21 21" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-          </svg>
-          <input
-            type="search"
-            id="app-search"
-            autocomplete="off"
-            placeholder="Search apps, authors, tags…"
-          />
-          <kbd class="search-hint" aria-hidden="true">/</kbd>
-        </div>
-        <div class="sort-field">
-          <label class="visually-hidden" for="app-sort">Sort apps</label>
-          <select id="app-sort">
-            <option value="name">Name (A–Z)</option>
-            <option value="newest">Newest first</option>
-            <option value="favorites">Most loved</option>
-          </select>
-        </div>
-      </div>
-
       {allTags.length > 0 && (
         <div class="tag-filter">
           <button class="filter-button filter-button-active" data-tag="__all__">All</button>
@@ -67,41 +35,10 @@ const allTags = Array.from(
           ))}
         </div>
       )}
-
-      <p class="result-count" id="result-count" aria-live="polite">{apps.length} apps</p>
-
       <div class="apps-grid">
         {apps.map((app) => (
-          <AppCard app={app} slug={appSlug(app)} />
+          <AppCard app={app} slug={app.id.split('/')[0]} />
         ))}
-      </div>
-
-      <div class="empty-state" id="empty-state" hidden>
-        <p>No apps match that search.</p>
-        <button type="button" class="hero-button" id="clear-filters">Clear filters</button>
-      </div>
-    </section>
-
-    <section class="promo">
-      <div class="promo-body">
-        <h2 class="promo-title">Running more than one of these?</h2>
-        <p class="promo-text">
-          <strong>busybar-manager</strong> installs, schedules and proxies these apps to a BUSY Bar
-          or the emulator, with autostart and a web dashboard, so you do not have to keep a terminal
-          open per app.
-        </p>
-        <a href={managerUrl} target="_blank" rel="noopener" class="promo-link">
-          Get busybar-manager →
-        </a>
-      </div>
-      <div class="promo-shot">
-        <Image
-          src={managerShot}
-          alt="The busybar-manager dashboard: the connected bar at the top, with installed apps and per-app controls below."
-          widths={[330, 660]}
-          sizes="(max-width: 768px) 100vw, 330px"
-          loading="lazy"
-        />
       </div>
     </section>
   </div>
@@ -154,101 +91,11 @@ const allTags = Array.from(
     margin-top: 0;
   }
 
-  .visually-hidden {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    padding: 0;
-    margin: -1px;
-    overflow: hidden;
-    clip: rect(0 0 0 0);
-    white-space: nowrap;
-    border: 0;
-  }
-
-  .gallery-controls {
-    display: flex;
-    gap: var(--sp-sm);
-    margin-bottom: var(--sp-md);
-  }
-
-  .search-field {
-    position: relative;
-    flex: 1;
-    display: flex;
-    align-items: center;
-  }
-
-  .search-icon {
-    position: absolute;
-    left: 12px;
-    color: var(--color-text-secondary);
-    pointer-events: none;
-  }
-
-  #app-search {
-    width: 100%;
-    font-family: inherit;
-    font-size: 14px;
-    color: var(--color-text);
-    background: var(--color-surface);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-md);
-    padding: 10px 40px;
-    transition: border-color var(--transition-normal);
-    -webkit-appearance: none;
-    appearance: none;
-  }
-
-  #app-search::placeholder {
-    color: var(--color-text-secondary);
-  }
-
-  #app-search:focus {
-    outline: none;
-    border-color: var(--color-primary);
-  }
-
-  .search-hint {
-    position: absolute;
-    right: 12px;
-    font-family: var(--font-mono);
-    font-size: 11px;
-    line-height: 1;
-    color: var(--color-text-secondary);
-    background: #f5f5f7;
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-sm);
-    padding: 3px 6px;
-    pointer-events: none;
-  }
-
-  .search-field:focus-within .search-hint {
-    display: none;
-  }
-
-  #app-sort {
-    height: 100%;
-    font-family: inherit;
-    font-size: 14px;
-    color: var(--color-text-secondary);
-    background: var(--color-surface);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-md);
-    padding: 10px 12px;
-    cursor: pointer;
-  }
-
-  #app-sort:focus {
-    outline: none;
-    border-color: var(--color-primary);
-  }
-
   .tag-filter {
     display: flex;
     flex-wrap: wrap;
     gap: 8px;
-    margin: 0 0 16px;
+    margin: 0 0 24px;
   }
 
   .filter-button {
@@ -279,90 +126,11 @@ const allTags = Array.from(
     opacity: 0.9;
   }
 
-  .result-count {
-    margin: 0 0 16px;
-    font-size: 13px;
-    color: var(--color-text-secondary);
-  }
-
   .apps-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
     gap: 24px;
-  }
-
-  .empty-state {
-    text-align: center;
-    padding: 48px 0;
-    color: var(--color-text-secondary);
-  }
-
-  .empty-state[hidden] {
-    display: none;
-  }
-
-  .empty-state p {
-    margin: 0 0 16px;
-  }
-
-  .empty-state .hero-button {
-    border: none;
-    cursor: pointer;
-    font-family: inherit;
-  }
-
-  .promo {
-    display: flex;
-    align-items: center;
-    gap: var(--sp-xl);
-    margin-top: 48px;
-    padding: var(--sp-lg);
-    background: var(--color-surface);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-lg);
-  }
-
-  .promo-body {
-    flex: 1;
-    min-width: 0;
-  }
-
-  .promo-shot {
-    flex-shrink: 0;
-    width: 330px;
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-md);
-    overflow: hidden;
-  }
-
-  .promo-shot :global(img) {
-    display: block;
-    width: 100%;
-    height: auto;
-  }
-
-  .promo-title {
-    margin: 0 0 8px;
-    font-size: 16px;
-  }
-
-  .promo-text {
-    margin: 0 0 12px;
-    font-size: 14px;
-    line-height: 1.6;
-    color: var(--color-text-secondary);
-    max-width: 68ch;
-  }
-
-  .promo-text strong {
-    font-family: var(--font-mono);
-    font-weight: 500;
-    color: var(--color-text);
-  }
-
-  .promo-link {
-    font-size: 14px;
-    font-weight: 600;
+    margin-top: 24px;
   }
 
   @media (max-width: 768px) {
@@ -374,24 +142,6 @@ const allTags = Array.from(
       font-size: 16px;
     }
 
-    .gallery-controls {
-      flex-direction: column;
-    }
-
-    .promo {
-      flex-direction: column;
-      align-items: stretch;
-      gap: var(--sp-lg);
-    }
-
-    .promo-shot {
-      width: 100%;
-    }
-
-    #app-sort {
-      width: 100%;
-    }
-
     .apps-grid {
       grid-template-columns: 1fr;
     }
@@ -400,8 +150,31 @@ const allTags = Array.from(
 
 <script>
   import { initFavorites } from '../scripts/favorites.js';
-  import { initGallery } from '../scripts/gallery.js';
-
   initFavorites();
-  initGallery();
+
+  const filterButtons = document.querySelectorAll('.filter-button');
+  const appCards = document.querySelectorAll('.app-card');
+
+  filterButtons.forEach(button => {
+    button.addEventListener('click', () => {
+      const selectedTag = button.getAttribute('data-tag');
+
+      // Update active button
+      filterButtons.forEach(btn => {
+        btn.classList.remove('filter-button-active');
+      });
+      button.classList.add('filter-button-active');
+
+      // Filter cards
+      appCards.forEach(card => {
+        if (selectedTag === '__all__') {
+          card.hidden = false;
+        } else {
+          const cardTags = card.getAttribute('data-tags') || '';
+          const hasTag = cardTags.split(' ').includes(selectedTag);
+          card.hidden = !hasTag;
+        }
+      });
+    });
+  });
 </script>

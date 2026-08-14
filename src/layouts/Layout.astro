@@ -31,9 +31,7 @@ const canonical = new URL(Astro.url.pathname, Astro.site);
         </a>
         <nav class="nav">
           <a href={baseUrl} class="nav-link">Apps</a>
-          <a href={`${baseUrl}authors/`} class="nav-link">Authors</a>
           <a href="https://github.com/maxswinkels/busybar-apps/blob/main/CONTRIBUTING.md" target="_blank" class="nav-link">Submit an app</a>
-          <a href="https://github.com/maxswinkels/busybar-manager" target="_blank" class="nav-link">Manager</a>
           <a href="https://github.com/maxswinkels/busybar-emulator" target="_blank" class="nav-link">Emulator</a>
         </nav>
       </div>
@@ -183,21 +181,5 @@ const canonical = new URL(Astro.url.pathname, Astro.site);
 
   .footer-text a:hover {
     color: var(--color-primary);
-  }
-
-  @media (max-width: 768px) {
-    /* Four nav items do not fit next to the logo on a phone; tighten, then wrap. */
-    .site-header .container {
-      flex-wrap: wrap;
-      gap: 4px var(--sp-md);
-    }
-
-    .nav {
-      gap: var(--sp-md);
-    }
-
-    .nav-link {
-      font-size: 13px;
-    }
   }
 </style>

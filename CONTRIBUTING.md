@@ -154,29 +154,11 @@ A visual preview of your app in action.
 - Shows your app running on the BUSY Bar's LED display
 - Must be actual emulator or hardware output. Mocked-up or AI-generated previews are rejected (they hide layout bugs the real display would show)
 
-**How to generate:** one command, no emulator needed.
-
-```bash
-npm ci                        # once
-npm run preview -- your-app-slug
-```
-
-That runs your app against a stand-in for the bar, records everything it draws,
-and writes `apps/your-app-slug/preview.gif` at exactly 720×160. Useful flags:
-
-- `--loop` for animated apps: trims to a seamless loop and shrinks the file a lot
-- `--png` for a still instead of a recording
-- `--seconds N` to record longer (default 6), `--start N` to skip past a loading state
-- anything after `--` is passed to your app: `npm run preview -- my-app -- --city Utrecht`
-
-If your app only draws when it has something to report, give it a `--test` flag
-that draws one frame and exits; the tool uses it automatically.
-
-Two cases still need real hardware or a running
-[emulator](https://github.com/maxswinkels/busybar-emulator): apps that drive
-BUSY modes (`PUT /api/busy/snapshot`), because theme animations are firmware
-side, and apps that read button or wheel input over `/api/status/ws`. For the
-latter, start the emulator and add `--upstream 127.0.0.1:8080`.
+**How to generate:**
+1. Run your app against the [BUSY Bar Emulator](https://github.com/maxswinkels/busybar-emulator)
+2. Screenshot or screen-record the LED display area
+3. Scale it up (or down) to 720×160 pixels
+4. Save as `preview.png` or `preview.gif` in your app folder
 
 ### `requirements.txt` (optional)
 
@@ -184,32 +166,15 @@ Only for apps with dependencies: standard pip format, one package per line (e.g.
 
 ## Step 4: Test your submission
 
-Run the checker. It enforces everything on this page, so if it is happy your PR
-will be too:
+Before opening a pull request, verify:
 
-```bash
-npm run check -- your-app-slug --run
-```
-
-`--run` also runs your app and reports how it behaved: how often it draws,
-whether it survives losing the screen, whether it exits cleanly. Fix the errors,
-and read the warnings — they are the things reviewers would otherwise raise by
-hand.
-
-It checks, among other things:
-
-- ✓ Folder is `apps/<your-slug>/` and the slug is kebab-case
-- ✓ `APP` in `app.py` matches the folder name
-- ✓ `app.py` accepts `--host` and defaults to `10.0.4.20`
-- ✓ `manifest.yaml` has all required fields and no extra ones
-- ✓ `preview.png` / `preview.gif` is exactly 720×160
-- ✓ Every draw element has an `id`, and colours are `#RRGGBBAA`
-- ✓ Elements stay inside the 72×16 display, and element ids do not accumulate
-- ✓ The app tolerates a `409` and releases the screen when it stops
-
-Two things it cannot check, which are still on you: that the code is your own or
-properly licensed (MIT preferred), and that any dependency in `requirements.txt`
-is one you can justify in the PR.
+- ✓ Folder is in `apps/<your-slug>/`
+- ✓ `app.py` exists and runs: `python app.py --host 127.0.0.1:8080`
+- ✓ `manifest.yaml` is valid YAML with all required fields
+- ✓ `preview.png` or `preview.gif` exists (720×160) and is real emulator/hardware output
+- ✓ App respects the 72×16 display size
+- ✓ Dependencies (if any) are listed in `requirements.txt`, and the app runs in a fresh venv: `python -m venv .venv && .venv/bin/pip install -r requirements.txt && .venv/bin/python app.py --host 127.0.0.1:8080`
+- ✓ Code is your own or properly licensed (MIT preferred)
 
 ## Step 5: Open a pull request
 
@@ -242,12 +207,6 @@ Once you open the PR:
 - If validation fails, the PR shows which fields need fixing
 
 Fix any errors and push again; the PR updates automatically.
-
-CI is the smaller half. Someone also runs your app, takes the screen away from it
-and regenerates your preview to compare. [MAINTAINERS.md](MAINTAINERS.md)
-describes what that review looks at, so you can check your own app against it
-first. If you would like to help review other people's submissions, that page
-also explains how to sign up.
 
 ## Tips
 

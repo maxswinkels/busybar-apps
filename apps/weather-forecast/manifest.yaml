@@ -1,7 +1,0 @@
-name: Weather Forecast
-author: robynhub
-description: Current weather and multi-day forecasts for BUSY Bar, with configurable location, units, and language.
-tags:
-  - weather
-  - info
-preview: ./preview.png

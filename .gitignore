@@ -9,9 +9,3 @@ dist/
 # Python
 __pycache__/
 *.pyc
-
-# Preview tooling
-*.busyrec
-.busyrec-tmp.json
-apps/*/.venv/
-.playwright-mcp
