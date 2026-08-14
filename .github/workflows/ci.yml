@@ -8,7 +8,10 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
+      # Full history: the build reads each app's add date from git.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-node@v4
         with:
