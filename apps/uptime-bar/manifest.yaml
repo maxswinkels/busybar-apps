@@ -1,0 +1,8 @@
+name: Uptime Bar
+author: maxswinkels
+description: "Connects to your Uptime Kuma instance and draws every monitor as one cell in a wall of pixels: dim green while all is well, then a red takeover naming the site and its downtime when one fails."
+tags:
+  - monitor
+  - info
+  - utility
+preview: ./preview.gif

@@ -1,0 +1,8 @@
+name: GitHub Actions
+author: maxswinkels
+description: "Live GitHub Actions status for the repos you pick: a progress bar while a run works, confetti when it passes, and a red hold naming the job that failed."
+tags:
+  - monitor
+  - utility
+  - info
+preview: ./preview.gif
