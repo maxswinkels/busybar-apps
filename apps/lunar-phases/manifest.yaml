@@ -1,0 +1,8 @@
+name: Lunar Phases
+author: robynhub
+description: Animated lunar phases for BUSY Bar, showing the current Moon phase with multilingual labels, automatic replay, and button-triggered animation.
+tags:
+  - moon
+  - astronomy
+  - ambient
+preview: ./preview.gif

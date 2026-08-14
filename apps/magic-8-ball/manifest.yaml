@@ -1,0 +1,8 @@
+name: Magic 8-Ball
+author: robynhub
+description: Interactive Magic 8-Ball for BUSY Bar with animated rolling, multilingual answers, button control, and optional auto-roll.
+tags:
+  - game
+  - interactive
+  - fun
+preview: ./preview.png
