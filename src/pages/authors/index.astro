@@ -1,0 +1,141 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import { getAuthors } from '../../lib/authors';
+
+const authors = await getAuthors();
+const baseUrl = import.meta.env.BASE_URL;
+const totalApps = authors.reduce((sum, author) => sum + author.apps.length, 0);
+---
+
+<Layout
+  title="Authors · BUSY Bar Apps"
+  description={`The ${authors.length} people behind the ${totalApps} community apps for the BUSY Bar.`}
+>
+  <div class="container">
+    <section class="hero">
+      <h1>Authors</h1>
+      <p class="hero-subtitle">
+        The {authors.length} people behind the {totalApps} community apps in this gallery.
+      </p>
+    </section>
+
+    <div class="authors-grid">
+      {authors.map((author) => (
+        <a class="author-card" href={`${baseUrl}authors/${author.slug}/`}>
+          <img
+            class="author-avatar"
+            src={`https://github.com/${author.name}.png?size=120`}
+            alt=""
+            width="56"
+            height="56"
+            loading="lazy"
+          />
+          <span class="author-name">@{author.name}</span>
+          <span class="author-count">
+            {author.apps.length} {author.apps.length === 1 ? 'app' : 'apps'}
+          </span>
+        </a>
+      ))}
+    </div>
+
+    <div class="nav-links">
+      <a href={baseUrl} class="back-link">← Back to gallery</a>
+    </div>
+  </div>
+</Layout>
+
+<style>
+  .hero {
+    text-align: center;
+    margin-bottom: 40px;
+    padding: 32px 0;
+  }
+
+  .hero h1 {
+    font-size: 36px;
+    margin-bottom: 16px;
+  }
+
+  .hero-subtitle {
+    font-size: 18px;
+    color: var(--color-text-secondary);
+    max-width: 600px;
+    margin: 0 auto;
+  }
+
+  .authors-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: var(--sp-md);
+  }
+
+  .author-card {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-sm);
+    background: var(--color-surface);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--glass-shadow);
+    padding: var(--sp-md);
+    color: inherit;
+    transition: box-shadow var(--transition-normal);
+  }
+
+  .author-card:hover {
+    text-decoration: none;
+    box-shadow: inset 0 1px 1px 0 var(--ring-in), 0 0 0 1px var(--color-primary),
+      0 18px 40px -24px rgba(0, 0, 0, 0.5);
+  }
+
+  .author-avatar {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: #f5f5f7;
+    flex-shrink: 0;
+  }
+
+  .author-name {
+    font-family: var(--font-mono);
+    font-size: 14px;
+    font-weight: 500;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .author-count {
+    margin-left: auto;
+    font-size: 12px;
+    color: var(--color-text-secondary);
+    white-space: nowrap;
+  }
+
+  .nav-links {
+    margin-top: 48px;
+    padding-top: 24px;
+    border-top: 1px solid var(--color-border);
+  }
+
+  .back-link {
+    color: var(--color-text-secondary);
+    font-weight: 500;
+    transition: color var(--transition-normal);
+  }
+
+  .back-link:hover {
+    color: var(--color-primary);
+    text-decoration: none;
+  }
+
+  @media (max-width: 768px) {
+    .hero h1 {
+      font-size: 28px;
+    }
+
+    .hero-subtitle {
+      font-size: 16px;
+    }
+  }
+</style>

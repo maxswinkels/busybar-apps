@@ -112,7 +112,7 @@ BUSY_IP = _host_from_argv() or os.environ.get("BUSY_BAR_HOST") or CONFIG.get("bu
 # Wi-Fi (192.168.55.235) returned {"error":"Forbidden"} without further
 # authorization -- see notes below main(). USB virtual LAN (10.0.4.20) works.
 BASE_URL = f"http://{BUSY_IP}"
-APP_ID = "dashboard"
+APP_ID = "busybar-custom-scroll"
 
 ICON_DIR = os.path.join(SCRIPT_DIR, "icons")
 os.makedirs(ICON_DIR, exist_ok=True)
