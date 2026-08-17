@@ -10,6 +10,7 @@
     "build": "astro build",
     "preview": "astro preview",
     "astro": "astro",
+    "ai:sync": "python3 scripts/sync-agents.py",
     "worker:dev": "cd workers/favorites && npx wrangler dev",
     "worker:deploy": "cd workers/favorites && npx wrangler deploy"
   },
