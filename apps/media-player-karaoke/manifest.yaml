@@ -1,0 +1,11 @@
+name: Media Player Karaoke
+author: robynhub
+description: Shows synced song lyrics on BUSY Bar with karaoke highlighting, playback controls, scrolling metadata, and optional two-line lyric mode.
+tags:
+  - media
+  - music
+  - karaoke
+  - lyrics
+  - now-playing
+  - controls
+preview: ./preview.gif
