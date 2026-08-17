@@ -1,0 +1,9 @@
+name: Slot Machine
+author: robynhub
+description: Animated classic fruit-machine slot for BUSY Bar with automatic or START-button spins, cumulative score, win effects, jackpot animations, and sound.
+tags:
+  - game
+  - arcade
+  - retro
+  - slot-machine
+preview: ./preview.gif

@@ -1,0 +1,7 @@
+name: Character
+author: antoninsmetana
+description: A parametric face that reacts to your machine - CPU load, live Claude Code turns, battery, keyboard idle - and to the bar's buttons and wheel. It blinks, glances around, sweats, and takes a punch.
+tags:
+  - effect
+  - animation
+preview: ./preview.gif
