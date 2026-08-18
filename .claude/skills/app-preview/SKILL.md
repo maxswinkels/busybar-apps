@@ -29,11 +29,17 @@ and the timing comes out exact instead of jittery.
    usually cuts the file size substantially. Add `--png` for a still. Pass app
    arguments after `--`, e.g. `npm run preview -- text-display -- --text "HI"`.
 
-   Check the app's own flags before recording. If it takes an fps flag, pass its
-   highest supported value (often `--fps 20`): more source frames means smoother
-   motion, and the recorder keeps whatever the app delivers. Apps that replay on
-   a timer usually have a demo flag (`--demo`, `--auto-roll N`) worth passing so
-   a full cycle lands inside the recording window.
+   Check the app's own flags before recording. If it takes an fps flag, try a
+   few values rather than jumping to its maximum: an app that uploads a PNG per
+   frame makes two HTTP calls per frame and usually cannot sustain its own top
+   setting. Ask for more than it can deliver and the recorder samples an uneven
+   stream onto an even grid, which shows up as two delay values in the finished
+   GIF and reads as judder. The best setting is the highest one where the
+   busyrec `rate` still lands close to what you asked for. `lunar-phases`
+   measured: `--fps 12` gives 11.2 draws/s and one delay, `--fps 16` gives 13.8
+   and one delay, `--fps 20` gives 16.5 and alternating 50/100 ms. Apps that
+   replay on a timer usually have a demo flag (`--demo`, `--auto-roll N`) worth
+   passing so a full cycle lands inside the recording window.
 
    The command records first (you will see the busyrec report, which is worth
    reading) and then renders. It writes straight to `apps/<slug>/preview.gif`
