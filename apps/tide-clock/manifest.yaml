@@ -1,0 +1,7 @@
+name: Tide Clock
+author: daninsc
+description: Alternates between a big clock and the next tide (high/low, height, time) for any NOAA station.
+tags:
+  - clock
+  - info
+preview: ./preview.gif

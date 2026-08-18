@@ -3,24 +3,25 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import Layout from '../../layouts/Layout.astro';
 import FavoriteButton from '../../components/FavoriteButton.astro';
-import { getCollection, getEntryBySlug } from 'astro:content';
+import { getCollection, type CollectionEntry } from 'astro:content';
 import { Code } from 'astro:components';
+import { appSlug, authorSlug } from '../../lib/authors';
 
 export async function getStaticPaths() {
   const apps = await getCollection('apps');
   return apps.map((app) => ({
-    params: { slug: app.id.split('/')[0] },
+    params: { slug: appSlug(app) },
     props: { app },
   }));
 }
 
 interface Props {
-  app: any;
+  app: CollectionEntry<'apps'>;
 }
 
 const { app } = Astro.props;
 const { name, author, description, tags, preview, repo } = app.data;
-const slug = app.id.split('/')[0];
+const slug = appSlug(app);
 const baseUrl = import.meta.env.BASE_URL;
 
 // Link to the author's own repo when provided, otherwise the monorepo folder.
@@ -63,7 +64,7 @@ try {
           <FavoriteButton slug={slug} name={name} />
         </div>
         <p class="app-author">
-          by <a href={`https://github.com/${author}`} target="_blank">@{author}</a>
+          by <a href={`${baseUrl}authors/${authorSlug(author)}/`}>@{author}</a>
         </p>
       </div>
 
@@ -109,6 +110,12 @@ try {
           No bar at hand? Run the
           <a href="https://github.com/maxswinkels/busybar-emulator" target="_blank">BUSY Bar Emulator</a>
           and point the app at it: <code>python app.py --host 127.0.0.1:8080</code>.
+        </p>
+        <p>
+          To keep it running without a terminal open, install it with
+          <a href="https://github.com/maxswinkels/busybar-manager" target="_blank">busybar-manager</a>,
+          which handles the virtualenv, autostart and scheduling, and lets you switch between
+          apps from a web dashboard.
         </p>
       </section>
 
@@ -304,7 +311,7 @@ try {
     color: #888;
     font-size: 11px;
     padding: 4px 12px;
-    border-radius: 3px;
+    border-radius: var(--radius-sm);
     cursor: pointer;
     font-family: var(--font-mono);
     transition: all 0.2s;

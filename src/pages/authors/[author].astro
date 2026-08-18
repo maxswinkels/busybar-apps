@@ -1,0 +1,123 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import AppCard from '../../components/AppCard.astro';
+import { getAuthors, appSlug, type Author } from '../../lib/authors';
+
+export async function getStaticPaths() {
+  const authors = await getAuthors();
+  return authors.map((author) => ({
+    params: { author: author.slug },
+    props: { author },
+  }));
+}
+
+interface Props {
+  author: Author;
+}
+
+const { author } = Astro.props;
+const { name, apps } = author;
+const baseUrl = import.meta.env.BASE_URL;
+const appCount = `${apps.length} ${apps.length === 1 ? 'app' : 'apps'}`;
+---
+
+<Layout
+  title={`@${name} · BUSY Bar Apps`}
+  description={`${appCount} for the BUSY Bar by @${name}.`}
+>
+  <div class="container">
+    <header class="author-header">
+      <img
+        class="author-avatar"
+        src={`https://github.com/${name}.png?size=160`}
+        alt=""
+        width="80"
+        height="80"
+        loading="lazy"
+      />
+      <div>
+        <h1>@{name}</h1>
+        <p class="author-meta">
+          {appCount} · <a href={`https://github.com/${name}`} target="_blank" rel="noopener">GitHub profile</a>
+        </p>
+      </div>
+    </header>
+
+    <div class="apps-grid">
+      {apps.map((app) => (
+        <AppCard app={app} slug={appSlug(app)} />
+      ))}
+    </div>
+
+    <div class="nav-links">
+      <a href={baseUrl} class="back-link">← Back to gallery</a>
+    </div>
+  </div>
+</Layout>
+
+<script>
+  import { initFavorites } from '../../scripts/favorites.js';
+  initFavorites();
+</script>
+
+<style>
+  .author-header {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-md);
+    margin-bottom: var(--sp-xl);
+  }
+
+  .author-avatar {
+    width: 80px;
+    height: 80px;
+    border-radius: 50%;
+    background: #f5f5f7;
+    flex-shrink: 0;
+  }
+
+  .author-header h1 {
+    margin: 0 0 4px;
+    font-family: var(--font-mono);
+    font-size: 28px;
+  }
+
+  .author-meta {
+    margin: 0;
+    font-size: 14px;
+    color: var(--color-text-secondary);
+  }
+
+  .apps-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 24px;
+  }
+
+  .nav-links {
+    margin-top: 48px;
+    padding-top: 24px;
+    border-top: 1px solid var(--color-border);
+  }
+
+  .back-link {
+    color: var(--color-text-secondary);
+    font-weight: 500;
+    transition: color var(--transition-normal);
+  }
+
+  .back-link:hover {
+    color: var(--color-primary);
+    text-decoration: none;
+  }
+
+  @media (max-width: 768px) {
+    .author-header h1 {
+      font-size: 22px;
+    }
+
+    .apps-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>

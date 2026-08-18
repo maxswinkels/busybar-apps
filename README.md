@@ -56,6 +56,10 @@ Visit the [live gallery](https://maxswinkels.github.io/busybar-apps/) to browse 
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed instructions, app conventions, and the manifest schema.
 
+## Help review submissions
+
+New apps arrive as pull requests and someone has to try them out. If you know Python and have a BUSY Bar (or run the emulator), see [MAINTAINERS.md](MAINTAINERS.md) for what a review involves and [sign up as a reviewer](https://github.com/maxswinkels/busybar-apps/issues/new?template=reviewer-signup.yml).
+
 ### Example manifest
 
 ```yaml

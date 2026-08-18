@@ -102,6 +102,16 @@ Conventions this encodes (keep them):
 - **Tolerate 409.** A higher-priority app may own the screen; keep ticking and
   retry rather than crashing. A one-shot app can call `tick()` once instead of
   looping.
+- **Reuse element ids across frames.** The firmware keeps a persistent, id-keyed
+  set per app and never releases what you stop sending, capped at 100. An app
+  that mints a fresh id every frame dies with `400 Elements number limit
+  exceeded` after about a hundred frames, even though each draw looks tiny.
+- **Add `--test`** (draw one frame, then exit) to anything that only draws
+  conditionally, like an alert. Eleven gallery apps already do. Without it the
+  app cannot be smoke-tested or previewed on a quiet day.
+- **Clear on exit.** `DELETE /api/display/draw?application_name=<APP>` inside
+  the `KeyboardInterrupt` handler, so the app does not leave its last frame
+  stuck on the bar.
 
 ## Step 3: create `apps/<slug>/manifest.yaml`
 
@@ -122,10 +132,16 @@ only if the app also lives in its own repository.
 
 ## Step 4: add a preview and test
 
-- Generate the 720×160 preview with the **app-preview** skill:
-  `app-preview <slug>` (add `--gif` for a recording). It saves
-  `apps/<slug>/preview.<ext>`; make sure `manifest.yaml`'s `preview:` matches.
-- Sanity-check the app runs against a running emulator:
-  `python3 apps/<slug>/app.py --host 127.0.0.1:8080`.
+```bash
+npm run preview -- <slug>        # records the app and writes apps/<slug>/preview.gif
+npm run check -- <slug> --run    # validates it and reports how it behaved
+```
+
+`npm run preview` needs no emulator: it stands in for the bar itself. Add
+`--loop` for animated apps and `--png` for a still, and make sure
+`manifest.yaml`'s `preview:` matches the file it wrote.
+
+`npm run check` must come back with no errors before submitting. Read its
+warnings too: they cover the things reviewers otherwise raise by hand.
 
 Then submit per `CONTRIBUTING.md` (fork, add `apps/<slug>/`, open a PR).

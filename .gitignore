@@ -14,3 +14,9 @@ __pycache__/
 # Agents
 .agents/
 
+
+# Preview tooling
+*.busyrec
+.busyrec-tmp.json
+apps/*/.venv/
+.playwright-mcp

@@ -1,0 +1,51 @@
+name: Sign up as a reviewer
+description: Help review community app submissions
+title: "Reviewer signup: @your-handle"
+labels: ["reviewer"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for offering. [MAINTAINERS.md](https://github.com/maxswinkels/busybar-apps/blob/main/MAINTAINERS.md)
+        describes what a review looks like. There is no rota and no SLA: you pick
+        up a PR when you have half an hour.
+
+  - type: dropdown
+    id: setup
+    attributes:
+      label: What can you test on?
+      options:
+        - A real BUSY Bar
+        - The emulator
+        - Both
+    validations:
+      required: true
+
+  - type: dropdown
+    id: time
+    attributes:
+      label: Roughly how much time do you have?
+      options:
+        - An occasional PR
+        - An hour or two a month
+        - A few hours a month
+    validations:
+      required: true
+
+  - type: textarea
+    id: interests
+    attributes:
+      label: Anything in particular you want to look at?
+      description: >
+        Python quality, API and rate-limit behaviour, visual design at 72×16,
+        previews, docs, or just whatever comes in.
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: read
+    attributes:
+      label: Before you submit
+      options:
+        - label: I have read MAINTAINERS.md
+          required: true
