@@ -9,11 +9,6 @@ dist/
 # Python
 __pycache__/
 *.pyc
-.venv/
-
-# Agents
-.agents/
-
 
 # Preview tooling
 *.busyrec

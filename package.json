@@ -10,7 +10,6 @@
     "build": "astro build",
     "serve": "astro preview",
     "astro": "astro",
-    "ai:sync": "python3 scripts/sync-agents.py",
     "preview": "node tools/render/render.mjs",
     "record": "python3 tools/busyrec.py",
     "check": "python3 tools/busycheck.py",
