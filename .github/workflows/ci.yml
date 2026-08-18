@@ -21,7 +21,7 @@ jobs:
       - run: npm ci
       - run: npm run build
 
-      - name: Check agent skills sync
+      - name: Check agent skills are synced
         run: |
           npm run ai:sync
           git diff --exit-code
