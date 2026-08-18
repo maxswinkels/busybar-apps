@@ -90,6 +90,10 @@ FONT = {
 def parse_args():
     p = argparse.ArgumentParser(description="90s pinball DMD inspired attract mode for BUSY Bar")
     p.add_argument("--host", default="10.0.4.20")
+    p.add_argument("--title-top", default="BUSYBAR",
+                   help="top word on the opening title screen (default: BUSYBAR)")
+    p.add_argument("--title-bottom", default="PINBALL",
+                   help="bottom word on the opening title screen (default: PINBALL)")
     p.add_argument("--fps", type=int, default=15)
     p.add_argument("--palette", choices=["color", *sorted(PALETTES)], default="color",
                    help="display palette (default: color; amber/red emulate classic monochrome DMDs)")
@@ -200,6 +204,35 @@ def centered_text(buf, s, y, v=3, scale=1):
     draw_text(buf, s, (W - text_width(s, scale)) // 2, y, v, scale)
 
 
+def tracked_text_width(s, spacing=2):
+    """Pixel width with explicit inter-letter tracking."""
+    chars = s.upper()
+    if not chars:
+        return 0
+    return sum(len(FONT.get(ch, FONT[" "])[0]) for ch in chars) + spacing * (len(chars) - 1)
+
+
+def draw_tracked_text(buf, s, x, y, v=3, spacing=2):
+    """Draw 5x7 text with a configurable number of pixels between glyphs."""
+    pen = x
+    for ch in s.upper():
+        glyph = FONT.get(ch, FONT[" "])
+        gw = len(glyph[0])
+        for gy, row in enumerate(glyph):
+            for gx, bit in enumerate(row):
+                if bit == "1":
+                    px(buf, pen + gx, y + gy, v)
+        pen += gw + spacing
+
+
+def centered_bold_text(buf, s, y, v=3, spacing=1):
+    """Draw a 1px-thickened 5x7 title with optional inter-letter tracking."""
+    width = tracked_text_width(s, spacing)
+    x = (W - (width + 1)) // 2
+    draw_tracked_text(buf, s, x, y, v, spacing)
+    draw_tracked_text(buf, s, x + 1, y, v, spacing)
+
+
 def dither_rgb(level_buf, palette):
     # Keep the image discrete, not anti-aliased.
     return [palette[v] for v in level_buf]
@@ -220,14 +253,11 @@ def colorize(level_buf, scene_name, t):
         x, y = i % W, i // W
 
         if scene_name == "logo":
-            # Each text line is one hue. The requested title is split over two
-            # lines because the 5x7 pixel font cannot fit "PINBALL BUSYBAR"
-            # across 72 pixels at readable size.
-            pin_x = (W - text_width("PINBALL")) // 2
-            busy_x = (W - text_width("BUSYBAR")) // 2
-            if 1 <= y <= 7 and busy_x <= x < busy_x + text_width("BUSYBAR"):
+            # Keep each title line monochrome regardless of its text length.
+            # The starburst outside the lettering retains the animated accent.
+            if 1 <= y <= 7:
                 hue = "purple"
-            elif 9 <= y <= 15 and pin_x <= x < pin_x + text_width("PINBALL"):
+            elif 9 <= y <= 15:
                 hue = "cyan"
             else:
                 hue = "blue" if (x // 5 + pulse) % 2 else "pink"
@@ -254,6 +284,19 @@ def colorize(level_buf, scene_name, t):
                 hue = "red"
             else:
                 hue = "cyan" if (x // 3) % 2 else "orange"
+
+        elif scene_name == "multiball":
+            # MULTIBALL itself stays monochrome; surrounding balls/bumper sparks
+            # provide the colour without splitting the lettering.
+            title_w = tracked_text_width("MULTIBALL", 2) + 1
+            title_x = (W - title_w) // 2
+            title_y = min(5, max(-7, int(t * 12) - 7))
+            if title_y <= y <= title_y + 7 and title_x <= x < title_x + title_w:
+                hue = "yellow"
+            elif (x < 14 or x > 57):
+                hue = "purple" if (x + y + pulse) % 2 else "cyan"
+            else:
+                hue = "red" if (x + y) % 3 == 0 else "orange"
 
         elif scene_name == "jackpot":
             # Both text lines are strictly monochrome; only surrounding sparks vary.
@@ -285,15 +328,43 @@ def colorize(level_buf, scene_name, t):
                 hue = "purple" if (x // 5 + pulse) % 2 else "cyan"
 
         elif scene_name == "insert_coin":
-            # INSERT/COIN are monochrome text blocks. During the final flash,
-            # the whole two-line message uses the same bright arcade yellow.
             hue = "yellow"
+        elif scene_name == "super_jackpot":
+            # Both words stay monochrome; sparks provide the extra colour.
+            if 0 <= y <= 6:
+                hue = "purple"
+            elif 9 <= y <= 15:
+                hue = "yellow"
+            else:
+                hue = "red" if (x + y + pulse) % 2 else "cyan"
+        elif scene_name == "ball_locked":
+            # BALL LOCKED remains a single-colour message; lock/ball accents vary.
+            if 0 <= y <= 6:
+                hue = "cyan"
+            elif 9 <= y <= 15:
+                hue = "yellow"
+            else:
+                hue = "purple" if (x + pulse) % 2 else "white"
+        elif scene_name == "tilt":
+            hue = "red"
+        elif scene_name == "match":
+            # MATCH and the selected number are separate monochrome text blocks.
+            # Decorative edge lamps provide the secondary colours.
+            if y <= 6:
+                hue = "cyan"
+            elif 8 <= y <= 15 and 24 <= x <= 48:
+                hue = "yellow"
+            else:
+                hue = "purple" if (x + pulse) % 2 else "pink"
         else:
             hue = "orange"
 
         out.append(COLOR_RAMPS[hue][level])
     return out
 
+
+TITLE_TOP = "BUSYBAR"
+TITLE_BOTTOM = "PINBALL"
 
 def scene_logo(t, cycle=0):
     b = blank()
@@ -304,8 +375,8 @@ def scene_logo(t, cycle=0):
         if k > 0:
             line(b, cx-k, cy, cx, cy-k//2, v); line(b, cx, cy-k//2, cx+k, cy, v)
             line(b, cx+k, cy, cx, cy+k//2, v); line(b, cx, cy+k//2, cx-k, cy, v)
-    centered_text(b, "BUSYBAR", 1, 2)
-    centered_text(b, "PINBALL", 9, 3)
+    centered_text(b, TITLE_TOP, 1, 2)
+    centered_text(b, TITLE_BOTTOM, 9, 3)
     return b
 
 
@@ -392,6 +463,41 @@ def scene_race(t, cycle=0):
         px(b, car_x - 2 - i * 3, y + 4 + (i & 1), max(1, 3 - i // 2))
     return b
 
+def scene_multiball(t, cycle=0):
+    """Bold MULTIBALL drops from above, surrounded by pinball-style pixel art."""
+    b = blank()
+
+    # Enter from above and settle around the vertical centre.
+    title_y = min(5, -7 + int(t * 12))
+    centered_bold_text(b, "MULTIBALL", title_y, 3, spacing=2)
+
+    # Two animated pinballs bounce near the lower corners. Their tiny highlights
+    # make them read as metallic balls even at this resolution.
+    bounce = abs((int(t * 12) % 10) - 5)
+    for bx, phase in ((8, 0), (63, 3)):
+        by = 12 - max(0, 3 - abs(bounce - phase))
+        rect(b, bx - 1, by - 1, 3, 3, 2)
+        px(b, bx - 1, by - 1, 3)
+        px(b, bx, by, 1)
+
+    # Mini bumper/starbursts at the sides. Alternate intensity for a mechanical
+    # pop effect rather than a smooth animation.
+    flash = 3 if int(t * 8) % 2 else 1
+    for cx, cy in ((18, 12), (53, 12)):
+        px(b, cx, cy, 3)
+        px(b, cx - 2, cy, flash); px(b, cx + 2, cy, flash)
+        px(b, cx, cy - 2, flash); px(b, cx, cy + 2, flash)
+        px(b, cx - 1, cy - 1, 2); px(b, cx + 1, cy - 1, 2)
+
+    # A few travelling spark pixels keep the card alive after the title settles.
+    spark_phase = int(t * 20)
+    for i in range(5):
+        sx = (spark_phase + i * 15) % W
+        sy = 1 + ((i * 3 + spark_phase // 3) % 14)
+        px(b, sx, sy, 1 + (i % 3))
+    return b
+
+
 def scene_bonus(t, cycle=0):
     b = blank()
     centered_text(b, "BONUS", 0, 2)
@@ -462,11 +568,98 @@ def scene_insert_coin(t, cycle=0):
     return b
 
 
-SCENES = [scene_logo, scene_score, scene_race, scene_jackpot, scene_bonus, scene_extra_ball, scene_insert_coin]
-DURATIONS = [2.6, 3.8, 3.0, 2.4, 2.8, 4.55, 4.31]
+def scene_super_jackpot(t, cycle=0):
+    b = blank()
+    # A short pixel zoom: SUPER settles first, then JACKPOT slams in underneath.
+    super_y = max(0, 5 - int(t * 12))
+    jackpot_y = min(9, 16 - int(max(0.0, t - 0.28) * 18))
+    centered_text(b, "SUPER", super_y, 2)
+    centered_text(b, "JACKPOT", jackpot_y, 3)
+    # Expanding starburst around the message.
+    rr = 2 + int((t * 15) % 12)
+    for dx, dy in ((1,0),(-1,0),(0,1),(0,-1),(1,1),(-1,1),(1,-1),(-1,-1)):
+        px(b, 36 + dx * rr, 8 + dy * max(1, rr // 2), 1 + (rr % 3))
+    return b
 
 
-SCENE_NAMES = ["logo", "score", "race", "jackpot", "bonus", "extra_ball", "insert_coin"]
+def scene_ball_locked(t, cycle=0):
+    b = blank()
+    centered_text(b, "BALL", 0, 2)
+    centered_text(b, "LOCKED", 9, 3)
+    # A pinball rolls into a small lock/cage at the right.
+    ball_x = min(57, -4 + int(t * 28))
+    ball_y = 7 + int(math.sin(t * 9) * 2)
+    rect(b, ball_x, ball_y, 3, 3, 2); px(b, ball_x, ball_y, 3)
+    # Lock body and shackle.
+    rect(b, 61, 5, 8, 8, 1)
+    rect(b, 63, 3, 4, 3, 2)
+    rect(b, 64, 4, 2, 2, 0)
+    if t > 2.0 and int(t * 8) % 2:
+        rect(b, 60, 4, 10, 10, 3)
+        rect(b, 61, 5, 8, 8, 0)
+    return b
+
+
+def scene_tilt(t, cycle=0):
+    b = blank()
+    # Deliberately stark: large red TILT! shakes, then briefly blacks out.
+    if 1.55 < t < 1.85:
+        return b
+    shake = (-1, 1, 0, 1, -1, 0)[int(t * 18) % 6]
+    centered_bold_text(b, "TILT!", 4 + shake, 3, spacing=2)
+    # Warning bars at the edges vibrate in the opposite direction.
+    for yy in range(1, 15, 3):
+        px(b, 2 + shake, yy, 2); px(b, 69 - shake, yy, 2)
+    return b
+
+
+def scene_match(t, cycle=0):
+    """Classic end-of-ball MATCH: spin the tens, settle, then flash the result."""
+    b = blank()
+    # Stable pseudo-random result for the whole attract cycle: 00, 10 ... 90.
+    rng = random.Random(0x4D41544348 + cycle * 7919)
+    result = rng.randrange(10) * 10
+
+    centered_text(b, "MATCH", 0, 3)
+
+    # For the first part, race through the possible match numbers like a reel.
+    # The reel progressively slows before snapping to the selected value.
+    settle_at = 2.45
+    if t < settle_at:
+        # Fast at first, slower near the stop. Quantising the phase gives the
+        # characteristic stepped electromechanical / DMD number roll.
+        progress = t / settle_at
+        rate = 13.0 - 8.0 * progress
+        step = int(t * rate + t * t * 1.7)
+        value = ((step + cycle * 3) % 10) * 10
+        centered_bold_text(b, f"{value:02d}", 8, 3, spacing=2)
+    else:
+        # Once stopped, flash the winning number twice, then leave it lit.
+        ft = t - settle_at
+        visible = True
+        if ft < 1.0:
+            visible = int(ft / 0.25) % 2 == 0
+        if visible:
+            centered_bold_text(b, f"{result:02d}", 8, 3, spacing=2)
+
+    # Small side lamps chase while the reel spins and freeze when it settles.
+    lamp_phase = int(t * 10) if t < settle_at else result // 10
+    for i, yy in enumerate((2, 6, 10, 14)):
+        v = 3 if (i + lamp_phase) % 4 == 0 else 1
+        rect(b, 2, yy, 2, 1, v)
+        rect(b, 68, yy, 2, 1, v)
+    return b
+
+
+# The attract sequence deliberately ends with INSERT COIN again. The same scene
+# function is reused, so the closing card repeats the full rise/flash/hold motion.
+SCENES = [scene_logo, scene_score, scene_race, scene_multiball, scene_jackpot, scene_bonus,
+          scene_extra_ball, scene_insert_coin, scene_super_jackpot, scene_ball_locked,
+          scene_tilt, scene_match, scene_insert_coin]
+DURATIONS = [2.6, 3.8, 3.0, 3.7, 2.4, 2.8, 4.55, 4.31, 2.9, 3.2, 2.2, 4.1, 4.31]
+
+SCENE_NAMES = ["logo", "score", "race", "multiball", "jackpot", "bonus", "extra_ball",
+               "insert_coin", "super_jackpot", "ball_locked", "tilt", "match", "insert_coin"]
 
 
 def render_at(t):
@@ -499,7 +692,10 @@ def save_test_frames(palette_name):
 
 
 def main():
+    global TITLE_TOP, TITLE_BOTTOM
     args = parse_args()
+    TITLE_TOP = args.title_top.upper()
+    TITLE_BOTTOM = args.title_bottom.upper()
     if args.test:
         save_test_frames(args.palette)
         return
