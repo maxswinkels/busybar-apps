@@ -1,0 +1,10 @@
+name: GCal Glance
+author: Kilo59
+description: Ambient Google Calendar display for BUSY Bar — at-a-glance meeting countdowns, alerts, and live schedule awareness.
+tags:
+  - google-calendar
+  - calendar
+  - productivity
+  - info
+preview: ./preview.gif
+
