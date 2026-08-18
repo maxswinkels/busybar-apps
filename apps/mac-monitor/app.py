@@ -3,8 +3,10 @@
 
     python app.py                        # BUSY Bar over USB (always 10.0.4.20)
     python app.py --host 127.0.0.1:8080  # emulator or a Wi-Fi bar
+    python app.py --metrics HOST:PORT    # read the Mac through a host agent
 """
 import json
+import os
 import subprocess
 import sys
 import time
@@ -19,14 +21,14 @@ APP = "mac-monitor"
 # emulator. Full API docs are served by the device: http://10.0.4.20/docs
 # ---------------------------------------------------------------------------
 
-def _host(default="10.0.4.20"):
-    if "--host" in sys.argv:
-        i = sys.argv.index("--host")
+def _arg(name, default=""):
+    if name in sys.argv:
+        i = sys.argv.index(name)
         if i + 1 < len(sys.argv):
             return sys.argv[i + 1]
     return default
 
-BASE = "http://" + _host().replace("http://", "").rstrip("/")
+BASE = "http://" + _arg("--host", "10.0.4.20").replace("http://", "").rstrip("/")
 
 def draw(elements, **extra):
     body = {"application_name": APP, "elements": elements, **extra}
@@ -134,6 +136,87 @@ def _net_bytes():
         return 0
 
 
+# ---------------------------------------------------------------------------
+# Where the readings come from
+#
+# Off this Mac, unless the app is running somewhere that cannot see it. Under
+# busybar-manager's Docker setup it runs in a Linux container, where ps,
+# vm_stat, sysctl and netstat are either missing or describe the container,
+# and _run() turns each of those into "". That reads exactly like an idle Mac:
+# three bars at 0%. So when the local tools come up empty the app asks a host
+# agent instead (busybar-manager/scripts/host-metrics.py), which Docker
+# Desktop exposes as host.docker.internal. Override the address with
+# --metrics HOST:PORT or BUSYBAR_HOST_METRICS.
+# ---------------------------------------------------------------------------
+
+DEFAULT_AGENT = "host.docker.internal:8322"
+
+# Set once by _resolve_source(); None means this Mac is readable directly.
+_agent = None
+_agent_ok = True
+
+
+def _reads_this_mac():
+    return _run("sysctl", "-n", "hw.memsize").strip().isdigit()
+
+
+def _fetch(agent):
+    """(cpu %, mem %, cumulative net bytes) from a host metrics agent."""
+    with urllib.request.urlopen(f"http://{agent}/metrics", timeout=4) as r:
+        d = json.loads(r.read().decode())
+    return float(d["cpu_pct"]), float(d["mem_pct"]), int(d["net_bytes"])
+
+
+def _resolve_source():
+    """Pick the source once, and refuse to start rather than draw zeroes."""
+    requested = _arg("--metrics", os.environ.get("BUSYBAR_HOST_METRICS", ""))
+    if not requested and _reads_this_mac():
+        return None
+
+    agent = requested or DEFAULT_AGENT
+
+    # App and agent come up together at login, so a first miss usually means
+    # "not yet" rather than "not there". Give it a few tries before quitting.
+    for attempt in range(5):
+        if attempt:
+            time.sleep(3)
+        try:
+            _fetch(agent)
+            return agent
+        except Exception as e:
+            last_error = e
+
+    sys.exit(
+        f"error: this Mac is not readable from here, and the host agent at "
+        f"{agent} is not answering ({last_error}).\n"
+        "Running in a container? Start the agent on the Mac itself:\n"
+        "  python3 scripts/host-metrics.py    (in busybar-manager)\n"
+        "or point at one with --metrics HOST:PORT."
+    )
+
+
+def _sample():
+    """One reading, or None while the agent is briefly unreachable."""
+    global _agent_ok
+
+    if _agent is None:
+        return _cpu_pct(), _mem_pct(), _net_bytes()
+
+    try:
+        reading = _fetch(_agent)
+    except Exception as e:
+        if _agent_ok:
+            print(f"host metrics unreachable ({_agent}): {e}, holding last reading",
+                  file=sys.stderr, flush=True)
+            _agent_ok = False
+        return None
+
+    if not _agent_ok:
+        print(f"host metrics back ({_agent})", flush=True)
+        _agent_ok = True
+    return reading
+
+
 def _color(pct_or_frac_x100):
     """Green / orange / red based on percentage."""
     if pct_or_frac_x100 >= 90:
@@ -155,22 +238,25 @@ def _fmt_net(rate):
 def tick():
     global _prev_bytes, _prev_time
 
-    cpu = _cpu_pct()
-    mem = _mem_pct()
-    _last["cpu"] = cpu
-    _last["mem"] = mem
-
-    now = time.monotonic()
-    nb = _net_bytes()
-    if _prev_time == 0.0:
-        net_rate = 0.0
+    sample = _sample()
+    if sample is None:
+        # Nothing new to read: redraw the last reading rather than a zeroed
+        # display, and leave _prev_* alone so the next rate spans the gap.
+        cpu, mem, net_rate = _last["cpu"], _last["mem"], _last["net_rate"]
     else:
-        elapsed = now - _prev_time
-        delta = nb - _prev_bytes
-        net_rate = max(0.0, delta / elapsed) if elapsed > 0 else 0.0
-    _prev_bytes = nb
-    _prev_time = now
-    _last["net_rate"] = net_rate
+        cpu, mem, nb = sample
+        now = time.monotonic()
+        if _prev_time == 0.0:
+            net_rate = 0.0
+        else:
+            elapsed = now - _prev_time
+            delta = nb - _prev_bytes
+            net_rate = max(0.0, delta / elapsed) if elapsed > 0 else 0.0
+        _prev_bytes = nb
+        _prev_time = now
+        _last["cpu"] = cpu
+        _last["mem"] = mem
+        _last["net_rate"] = net_rate
 
     net_frac = min(1.0, net_rate / (10 * 1024 * 1024))
 
@@ -218,7 +304,9 @@ def tick():
 
 
 if __name__ == "__main__":
-    print(f"mac_monitor → {BASE}  (Ctrl-C to stop)")
+    _agent = _resolve_source()
+    source = "this Mac" if _agent is None else f"host agent {_agent}"
+    print(f"mac_monitor → {BASE}  (reading {source}, Ctrl-C to stop)")
     try:
         while True:
             tick()
