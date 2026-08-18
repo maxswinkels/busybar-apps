@@ -238,6 +238,7 @@ Then go to GitHub and open a pull request. Use this checklist in your PR descrip
 Once you open the PR:
 
 - GitHub Actions will run `npm run build`, which validates your manifest against the content schema
+- CI checks that `.agents/` skills remain synced with `.claude/` (`npm run ai:sync`)
 - The site will build a preview of your app page
 - If validation fails, the PR shows which fields need fixing
 
