@@ -29,6 +29,12 @@ and the timing comes out exact instead of jittery.
    usually cuts the file size substantially. Add `--png` for a still. Pass app
    arguments after `--`, e.g. `npm run preview -- text-display -- --text "HI"`.
 
+   Check the app's own flags before recording. If it takes an fps flag, pass its
+   highest supported value (often `--fps 20`): more source frames means smoother
+   motion, and the recorder keeps whatever the app delivers. Apps that replay on
+   a timer usually have a demo flag (`--demo`, `--auto-roll N`) worth passing so
+   a full cycle lands inside the recording window.
+
    The command records first (you will see the busyrec report, which is worth
    reading) and then renders. It writes straight to `apps/<slug>/preview.gif`
    unless you pass `--out`.
@@ -37,6 +43,12 @@ and the timing comes out exact instead of jittery.
    is not clipped at the edges of the 72x16 grid, and that the window caught the
    interesting part of the app rather than a loading state. `--start <seconds>`
    skips further into the recording.
+
+   For a GIF, verify the motion instead of trusting the frame count. Counting
+   how many frames merely *differ* proves nothing: many apps twinkle pixels
+   every frame, so that check passes even on a badly juddering preview. Track
+   the position of the moving element across frames and look at the per-frame
+   deltas. They should change smoothly and never reverse direction.
 
 3. **Check it passes.** `npm run check -- <app-slug>` must report no errors:
    that is what validates the 720x160 dimensions and the file size budget.
@@ -55,6 +67,13 @@ and the timing comes out exact instead of jittery.
   animations, which the emulator stores but never renders. Those previews still
   have to come off real hardware. `busycheck` flags such apps so this is not a
   surprise.
+- **Judder in the preview is the app's own.** The renderer replays the recorded
+  draw stream at its real timestamps, so the capture cannot add lag any more. If
+  motion still steps unevenly, the app is moving a sprite by whole pixels across
+  a 72-px display, so fast motion jumps 2 to 4 LEDs per frame. Diagnose it by
+  computing the intended per-frame positions from the app's own easing, and
+  report it as a review finding rather than editing the app to make the preview
+  look better.
 - **Apps that need button or wheel input** (`/api/status/ws`) are not covered by
   the built-in stub. Start the emulator and record through it:
   `npm run preview -- <slug> --upstream 127.0.0.1:8080`.
