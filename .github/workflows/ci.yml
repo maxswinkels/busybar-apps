@@ -21,6 +21,16 @@ jobs:
       - run: npm ci
       - run: npm run build
 
+      - name: Check agent skills sync
+        run: |
+          npm run ai:sync
+          git diff --exit-code
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "Uncommitted changes or untracked files detected after running ai:sync"
+            git status --porcelain
+            exit 1
+          fi
+
   check:
     # Advisory: this job reports what busycheck found and never fails the PR.
     # A submission is not blocked on style, it is discussed.
