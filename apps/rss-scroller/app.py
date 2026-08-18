@@ -93,8 +93,8 @@ def parse_args():
     p.add_argument("--host", default=DEFAULT_HOST,
                    help=f"BUSY Bar host (default: {DEFAULT_HOST})")
     p.add_argument("--feed", action="append", type=parse_feed_arg,
-                   metavar="NAME=URL",
-                   help="RSS/Atom feed; repeat for multiple feeds")
+                   metavar="FEED",
+                   help="RSS/Atom feed as NAME=URL; repeat for multiple feeds")
     p.add_argument("--refresh", type=int, default=DEFAULT_REFRESH_SEC,
                    help=f"seconds between RSS refreshes (default: {DEFAULT_REFRESH_SEC})")
     p.add_argument("--feed-seconds", type=int, default=DEFAULT_FEED_SECONDS,

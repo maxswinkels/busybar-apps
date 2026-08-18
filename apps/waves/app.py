@@ -76,11 +76,11 @@ def parse_args():
     p = argparse.ArgumentParser(description="Ambient realistic ocean waves for BUSY Bar")
     p.add_argument("--host", default="10.0.4.20")
     p.add_argument("--fps", type=float, default=12.0, help="frames per second / smoothness (default: 12)")
-    p.add_argument("--animation-speed", "--speed", dest="animation_speed", type=float, default=2.0,
+    p.add_argument("--animation-speed", dest="animation_speed", type=float, default=2.0,
                    help="global animation speed multiplier; 0.5=half speed, 2=double (default: 2.0)")
-    p.add_argument("--state", "--mood", dest="state",
+    p.add_argument("--state", dest="state",
                    choices=["auto"] + STATE_NAMES, default="auto",
-                   help="sea state; --mood is kept as a compatibility alias (default: auto)")
+                   help="sea state (default: auto)")
     p.add_argument("--state-seconds", type=float, default=24.0,
                    help="time spent at each auto state before changing (default: 24)")
     p.add_argument("--transition-seconds", type=float, default=10.0,
