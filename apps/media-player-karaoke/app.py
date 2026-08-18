@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""media-player-karaoke: synchronized lyrics for BUSY Bar (macOS).
+"""media-player-karaoke: synchronized lyrics for BUSY Bar (macOS + Windows).
 
-Reads macOS Now Playing via MediaRemote/JXA, looks up synced lyrics on LRCLIB,
+Reads system Now Playing via MediaRemote/JXA on macOS or Windows Media Control/WinRT on Windows, looks up synced lyrics on LRCLIB,
 and renders a 72x16 karaoke line with a bouncing ball over the current word.
 
 Examples:
-  python3 media_player_karaoke_v8.py
-  python3 media_player_karaoke_v8.py --host 127.0.0.1:8080
-  python3 media_player_karaoke_v8.py --demo
-  python3 media_player_karaoke_v8.py --debug
+  python3 media_player_karaoke_v13.py
+  python3 media_player_karaoke_v13.py --host 127.0.0.1:8080
+  python3 media_player_karaoke_v13.py --demo
+  python3 media_player_karaoke_v13.py --debug
 
 The bouncing-ball word timing is estimated inside each LRC line because normal
 LRC files provide line timestamps, not word timestamps. The line boundaries
@@ -115,6 +115,77 @@ function run() {
 }
 '''
 
+
+
+# Windows system-wide Now Playing backend. Mirrors the official BUSY Bar
+# media-player implementation and uses built-in Windows Runtime APIs.
+WINDOWS_PS = r'''$ErrorActionPreference = 'Stop'
+
+function Wait-WinRT($op) {
+    while ($op.Status -eq 0) { Start-Sleep -Milliseconds 10 }
+    if ($op.Status -eq 1) { return $op.GetResults() }
+    throw "WinRT async operation failed with status $($op.Status)"
+}
+
+[void][Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager, Windows.Media.Control, ContentType=WindowsRuntime]
+$mgr = Wait-WinRT ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager]::RequestAsync())
+$session = $mgr.GetCurrentSession()
+if ($null -eq $session) {
+    @{ ok=$true; active=$false; state='idle' } | ConvertTo-Json -Compress
+    exit 0
+}
+
+$props = Wait-WinRT ($session.TryGetMediaPropertiesAsync())
+$playback = $session.GetPlaybackInfo()
+$timeline = $session.GetTimelineProperties()
+
+$state = switch ([int]$playback.PlaybackStatus) {
+    4 { 'playing' }
+    5 { 'paused' }
+    3 { 'paused' }
+    default { 'unknown' }
+}
+
+$duration = $null
+$elapsed = $null
+if ($null -ne $timeline) {
+    try { $duration = $timeline.EndTime.TotalSeconds } catch {}
+    try { $elapsed = $timeline.Position.TotalSeconds } catch {}
+}
+
+@{
+    ok = $true
+    active = $true
+    state = $state
+    app = $session.SourceAppUserModelId
+    title = if ($props.Title) { [string]$props.Title } else { $null }
+    artist = if ($props.Artist) { [string]$props.Artist } else { $null }
+    album = if ($props.AlbumTitle) { [string]$props.AlbumTitle } else { $null }
+    duration = $duration
+    elapsed = $elapsed
+    rate = if ($state -eq 'playing') { 1.0 } else { 0.0 }
+} | ConvertTo-Json -Compress
+'''
+
+WINDOWS_CONTROL_PS = r'''param([string]$Command)
+$ErrorActionPreference = 'Stop'
+function Wait-WinRT($op) {
+    while ($op.Status -eq 0) { Start-Sleep -Milliseconds 10 }
+    if ($op.Status -eq 1) { return $op.GetResults() }
+    throw "WinRT async operation failed with status $($op.Status)"
+}
+[void][Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager, Windows.Media.Control, ContentType=WindowsRuntime]
+$mgr = Wait-WinRT ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager]::RequestAsync())
+$session = $mgr.GetCurrentSession()
+if ($null -eq $session) { throw 'No active media session' }
+switch ($Command) {
+    'toggle'   { [void](Wait-WinRT ($session.TryTogglePlayPauseAsync())) }
+    'next'     { [void](Wait-WinRT ($session.TrySkipNextAsync())) }
+    'previous' { [void](Wait-WinRT ($session.TrySkipPreviousAsync())) }
+    default    { throw "Unknown command: $Command" }
+}
+'''
+
 # OS-global media controls, mirrored from the official BUSY Bar media-player.
 MAC_CONTROL_JXA = r'''ObjC.import('Foundation');
 
@@ -138,21 +209,35 @@ function run(argv) {
 
 
 def media_command(command: str):
-    if sys.platform != "darwin":
-        return False, f"media controls unsupported on {sys.platform}"
-    ids = {"toggle": 2, "next": 4, "previous": 5}
-    cmd_id = ids.get(command)
-    if cmd_id is None:
-        return False, f"unsupported command: {command}"
-    try:
-        proc = subprocess.run(
-            ["osascript", "-l", "JavaScript", "-e", MAC_CONTROL_JXA, str(cmd_id)],
-            capture_output=True, text=True, timeout=5,
-        )
-    except Exception as exc:
-        return False, str(exc)
-    detail = (proc.stderr or proc.stdout).strip()
-    return proc.returncode == 0 and (not detail or detail == "ok"), detail or "ok"
+    if sys.platform == "darwin":
+        ids = {"toggle": 2, "next": 4, "previous": 5}
+        cmd_id = ids.get(command)
+        if cmd_id is None:
+            return False, f"unsupported command: {command}"
+        try:
+            proc = subprocess.run(
+                ["osascript", "-l", "JavaScript", "-e", MAC_CONTROL_JXA, str(cmd_id)],
+                capture_output=True, text=True, timeout=5,
+            )
+        except Exception as exc:
+            return False, str(exc)
+        detail = (proc.stderr or proc.stdout).strip()
+        return proc.returncode == 0 and (not detail or detail == "ok"), detail or "ok"
+
+    if sys.platform == "win32":
+        try:
+            proc = subprocess.run(
+                ["powershell.exe", "-NoProfile", "-NonInteractive",
+                 "-ExecutionPolicy", "Bypass", "-Command", WINDOWS_CONTROL_PS,
+                 "-Command", command],
+                capture_output=True, text=True, timeout=8,
+            )
+        except Exception as exc:
+            return False, str(exc)
+        detail = (proc.stderr or proc.stdout).strip()
+        return proc.returncode == 0, detail or "ok"
+
+    return False, f"media controls unsupported on {sys.platform}"
 
 
 # Minimal BUSY Bar input WebSocket client. Firmware status frames are protobuf.
@@ -375,7 +460,7 @@ def parse_args():
                    help="disable automatic compensation for BUSY Bar upload/draw latency")
     p.add_argument("--cache-dir", default=str(Path.home() / ".cache" / "busybar-media-player-karaoke"))
     p.add_argument("--debug", action="store_true")
-    p.add_argument("--demo", action="store_true", help="synthetic lyrics/player; no macOS Now Playing needed")
+    p.add_argument("--demo", action="store_true", help="synthetic lyrics/player; no OS Now Playing needed")
     p.add_argument("--no-ball", action="store_true", help="hide bouncing ball")
     p.add_argument("--two-line", action="store_true",
                    help="show current lyric plus the next line; disables the bouncing ball")
@@ -443,8 +528,8 @@ class BusyDisplay:
             pass
 
 
-class MacNowPlaying:
-    """Read MediaRemote and maintain a smooth local playback clock.
+class SystemNowPlaying:
+    """Read system Now Playing and maintain a smooth local playback clock.
 
     On some macOS/player combinations MediaRemote's elapsed position only
     changes when a transport event occurs (play/pause/seek).  Using that value
@@ -548,22 +633,48 @@ class MacNowPlaying:
         out["elapsed"] = max(0.0, elapsed)
         return out
 
+    def _read_macos(self):
+        r = subprocess.run(["osascript", "-l", "JavaScript", "-e", MAC_JXA],
+                           capture_output=True, text=True, timeout=4)
+        if r.returncode != 0:
+            raise RuntimeError((r.stderr or r.stdout).strip() or "osascript failed")
+        return json.loads(r.stdout.strip() or "{}")
+
+    def _read_windows(self):
+        r = subprocess.run(
+            ["powershell.exe", "-NoProfile", "-NonInteractive",
+             "-ExecutionPolicy", "Bypass", "-Command", WINDOWS_PS],
+            capture_output=True, text=True, timeout=8,
+        )
+        if r.returncode != 0:
+            raise RuntimeError((r.stderr or r.stdout).strip() or "PowerShell Now Playing failed")
+        data = json.loads(r.stdout.strip() or "{}")
+        return data if data.get("active", True) else {}
+
     def read(self):
-        if sys.platform != "darwin":
-            return {}
         try:
-            r = subprocess.run(["osascript", "-l", "JavaScript", "-e", MAC_JXA],
-                               capture_output=True, text=True, timeout=4)
-            if r.returncode != 0:
-                if self.debug: print("now-playing:", r.stderr.strip())
+            if sys.platform == "darwin":
+                data = self._read_macos()
+            elif sys.platform == "win32":
+                data = self._read_windows()
+            else:
+                if self.debug:
+                    print(f"now-playing: unsupported platform {sys.platform}")
                 return self.last
-            data = json.loads(r.stdout.strip() or "{}")
+
             if data.get("title"):
                 data = self._clocked(data)
                 self.last = data
-            return data
+                return data
+
+            self.last = {}
+            self._track = None
+            self._last_source_elapsed = None
+            self._last_rate = 0.0
+            return {}
         except Exception as e:
-            if self.debug: print("now-playing error:", e)
+            if self.debug:
+                print("now-playing error:", e)
             return self.last
 
     def extrapolate(self, data):
@@ -1076,7 +1187,7 @@ def demo_info(t):
 def main():
     args = parse_args()
     display = BusyDisplay(args.host)
-    backend = MacNowPlaying(args.debug)
+    backend = SystemNowPlaying(args.debug)
     fetcher = LyricsFetcher(args.cache_dir, args.debug)
     rows = parse_lrc(DEMO_LRC) if args.demo else []
     lyric_key = "demo" if args.demo else None
@@ -1118,8 +1229,8 @@ def main():
                 if info:
                     last_info = info
             else:
-                # JXA polling is intentionally slower than rendering. Keep the
-                # karaoke clock moving smoothly between MediaRemote samples.
+                # OS Now Playing polling is intentionally slower than rendering. Keep the
+                # karaoke clock moving smoothly between backend samples.
                 info = backend.extrapolate(last_info)
 
             if not args.demo and info.get("title"):
@@ -1165,7 +1276,7 @@ def main():
                         pixels = render_karaoke(rows, info, not args.no_ball, not args.no_underline,
                                                 args.sync_offset, args.ball_lead, latency_comp)
                 elif not info.get("title"):
-                    pixels = render_message("NO MUSIC PLAYING", "MACOS NOW PLAYING")
+                    pixels = render_message("NO MUSIC PLAYING", "WINDOWS NOW PLAYING" if sys.platform == "win32" else "MACOS NOW PLAYING")
                 elif requested_key and lyric_key is None:
                     pixels = render_standby(info, "finding", now)
                 elif rows:
