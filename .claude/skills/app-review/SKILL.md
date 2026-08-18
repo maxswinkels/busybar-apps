@@ -118,6 +118,42 @@ The tools cover the mechanical rules. These need judgement:
 - **Secrets.** Read from the environment, never a literal in `app.py`, and
   documented in the docstring.
 
+## What the stub cannot see
+
+`busyrec` deliberately reproduces the firmware behaviours that break submissions:
+draw validation, the accumulating 100-element cap (`MAX_ELEMENTS`, and the count
+is checked before the priority check, exactly as on the bar) and priority
+arbitration including the refusal to step down without releasing. Four things it
+does not reproduce, each of which has shipped a broken app:
+
+- **Element ids are type-locked on the device.** An id once drawn as a
+  `rectangle` and later re-sent as a `text` returns `400 Bad request` on firmware
+  1.1.1. `validate_draw_body` never looks at `type` and `merge_elements` replaces
+  by id, so busyrec and the emulator both accept it silently. It bites the "park
+  it off-screen at `x=-400`" idiom: a parked rectangle has to stay a rectangle
+  (1x1, `fill_colors: ["#00000000"]`), not become a blank text element. Found on
+  `github-actions`, where every draw failed once the progress bar was hidden.
+- **Draw latency scales with element count, and the preview hides it.** The bar
+  spends about 3.6 ms per element (1 element ~5.6 ms, 48 ~169 ms, 96 ~356 ms),
+  so a full-screen rect animation runs at 3 to 6 fps there. busyrec answers in
+  well under a millisecond and the renderer replays the app's own recorded
+  timing, so the same app looks perfectly smooth in the regenerated preview.
+  Count elements per frame rather than trusting it. Anything animating with more
+  than ~30 belongs on the image path: upload a 72x16 PNG to
+  `/api/assets/upload`, draw one `image` element, flat ~50 ms/frame (~19 fps)
+  regardless of complexity. `pixel-fire`, `audio-visualizer` and `nyan-cat` were
+  all rewritten that way after crashing or crawling on hardware.
+- **Rapid re-upload of one asset filename returns `508`** (the asset is locked
+  while a draw reads it). Image-push apps must rotate a ring of ~4 filenames.
+  busyrec stores every upload without locking, so a single-filename app records
+  flawlessly and stalls on the bar.
+- **Native text sits lower on the device than in the renderer**: about 1px for
+  `bold`, 2px for `small`. Image and sprite elements land identically. So any app
+  that aligns text against a sprite, or stacks rows inside the 16px height, can
+  look right in the preview and be clipped or overlapping on hardware. Step 5, or
+  a human looking at a bar, is the only real check. `flightradar` and
+  `moneybird-invoice-paid` both had to be tuned on the device.
+
 ## Pitfalls
 
 - **A blank recording usually means arguments, not a broken app.** Alert apps

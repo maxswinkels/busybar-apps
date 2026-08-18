@@ -33,8 +33,23 @@ const HERE = path.dirname(fileURLToPath(import.meta.url))
 const ROOT = path.resolve(HERE, '..', '..')
 const W = 720, H = 160          // 72x16 LEDs at a 10 px pitch
 const DEFAULT_MAX_BYTES = 1_000_000
+const MIN_LADDER_FPS = 10       // never thin a preview below this to save bytes
 
 // ---------------------------------------------------------------- arguments
+
+// A GIF frame delay is a whole number of centiseconds, so a requested rate that
+// does not divide 100 gets rounded by the encoder, and folded runs of identical
+// frames round differently from single ones (15 fps: 66.7 ms -> 7 cs, but a
+// folded pair 133.3 ms -> 13 cs, not 14). That reintroduces exactly the uneven
+// delays this renderer exists to avoid, so land on a whole centisecond here.
+function snapFps(v) {
+  const n = Number(v)
+  if (!isFinite(n) || n <= 0) {
+    console.error(`--fps expects a positive number or "auto", got ${v}`)
+    process.exit(2)
+  }
+  return 100 / Math.min(100, Math.max(1, Math.round(100 / n)))
+}
 
 function parseArgs(argv) {
   const opts = {
@@ -48,7 +63,7 @@ function parseArgs(argv) {
     const a = argv[i]
     if (a === '--') { opts.appArgs = argv.slice(i + 1); break }
     else if (a === '--seconds') opts.seconds = Number(argv[++i])
-    else if (a === '--fps') { const v = argv[++i]; opts.fps = v === 'auto' ? 'auto' : Number(v) }
+    else if (a === '--fps') { const v = argv[++i]; opts.fps = v === 'auto' ? 'auto' : snapFps(v) }
     else if (a === '--start') opts.start = Number(argv[++i])
     else if (a === '--png') opts.png = true
     else if (a === '--loop') opts.loop = true
@@ -442,20 +457,24 @@ async function main() {
     report(outPath, slug, { frames: 1, fps: 0, warnings, start, limit })
   } else {
     if (opts.loop) pixels = pixels.slice(0, findLoop(pixels))
-    let colors = 256, result = encodeGif(pixels, fps, colors)
+    let colors = 256, encodedFps = fps
+    let result = encodeGif(pixels, fps, colors)
     // Step down only as far as the budget needs: frame rate first (least
-    // visible on a 72x16 display), then palette depth.
-    const ladder = [[fps, 256], [fps, 128], [Math.max(10, Math.round(fps / 2)), 128],
-      [Math.max(10, Math.round(fps / 2)), 64]]
-    for (let i = 1; i < ladder.length && result.bytes.length > opts.maxBytes; i++) {
-      const [f, c] = ladder[i]
-      const thinned = f === fps ? pixels : pixels.filter((_, idx) => idx % Math.round(fps / f) === 0)
-      result = encodeGif(thinned, f, c)
+    // visible on a 72x16 display), then palette depth. The INTEGER here is the
+    // thinning factor and the playback rate is derived from it, never the other
+    // way round: keeping every second frame has to double the delay exactly, or
+    // the preview plays back at a speed the app never ran at.
+    const half = fps / 2 >= MIN_LADDER_FPS ? 2 : 1
+    const steps = half > 1 ? [[1, 128], [half, 128], [half, 64]] : [[1, 128], [1, 64]]
+    for (const [factor, c] of steps) {
+      if (result.bytes.length <= opts.maxBytes) break
+      const thinned = factor === 1 ? pixels : pixels.filter((_, idx) => idx % factor === 0)
+      result = encodeGif(thinned, fps / factor, c)
       colors = c
-      if (f !== fps) { /* keep fps for reporting */ }
+      encodedFps = fps / factor
     }
     fs.writeFileSync(outPath, result.bytes)
-    report(outPath, slug, { frames: result.written, fps, colors, warnings, start, limit,
+    report(outPath, slug, { frames: result.written, fps: encodedFps, colors, warnings, start, limit,
       bytes: result.bytes.length, maxBytes: opts.maxBytes })
   }
 
@@ -469,7 +488,7 @@ function report(outPath, slug, info) {
   if (info.bytes) {
     console.log(`  size          ${(info.bytes / 1000).toFixed(0)} kB${
       info.bytes > info.maxBytes ? '  (over budget, consider --seconds or --loop)' : ''}`)
-    console.log(`  frames        ${info.frames} written at ${info.fps} fps, ${info.colors} colours`)
+    console.log(`  frames        ${info.frames} written at ${+info.fps.toFixed(2)} fps, ${info.colors} colours`)
   }
   console.log(`  window        ${info.start.toFixed(2)}s -> ${info.limit.toFixed(2)}s of the recording`)
   for (const w of info.warnings) {
