@@ -12,7 +12,7 @@ with the BUSY Bar START/top button.
 Examples:
     python3 app.py
     python3 app.py --host 127.0.0.1:8080
-    python3 app.py --language it
+    python3 app.py --lang it
     python3 app.py --auto-seconds 90 --fps 14
     python3 app.py --debug-phase full --font large
 
@@ -245,7 +245,7 @@ def parse_args():
     p = argparse.ArgumentParser(description="Animated lunar phases for BUSY Bar")
     p.add_argument("--host", default=DEFAULT_HOST, help="BUSY Bar host ip[:port]")
     p.add_argument(
-        "--language", "--lang", choices=sorted(TRANSLATIONS), default="en",
+        "--lang", dest="language", choices=sorted(TRANSLATIONS), default="en",
         help="display language: en, fr, de, es, nl, it (default: en)",
     )
     p.add_argument(

@@ -12,8 +12,8 @@ The listener reconnects automatically after connection loss.
 Examples:
     python3 app.py
     python3 app.py --host 127.0.0.1:8080
-    python3 app.py --language it
-    python3 app.py --language de --fps 15
+    python3 app.py --lang it
+    python3 app.py --lang de --fps 15
     python3 app.py --auto-roll 30
 
 Dependency:
@@ -179,7 +179,7 @@ ANSWERS = {
 def parse_args():
     p = argparse.ArgumentParser(description="Magic 8-Ball for BUSY Bar")
     p.add_argument("--host", default="10.0.4.20", help="BUSY Bar host ip[:port]")
-    p.add_argument("--language", "--lang", choices=["en", "fr", "de", "es", "it", "nl"],
+    p.add_argument("--lang", dest="language", choices=["en", "fr", "de", "es", "it", "nl"],
                    default="en", help="answer language (default: en)")
     p.add_argument("--fps", type=int, default=DEFAULT_FPS,
                    help=f"animation frame rate (default: {DEFAULT_FPS})")
