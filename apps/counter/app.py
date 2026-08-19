@@ -35,7 +35,9 @@ next run -- as a plain number, so the same profile can be reprinted in a
 different --format tomorrow. Passing --start ignores whatever was saved.
 """
 import argparse
+import io
 import json
+import math
 import os
 import queue
 import re
@@ -43,6 +45,7 @@ import socket
 import struct
 import threading
 import time
+import wave
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -90,6 +93,10 @@ def build_parser():
                    help="counter colour as #RGB, #RRGGBB or #RRGGBBAA (default #FFD228FF)")
     p.add_argument("--title-color", default="#C4C4C4FF",
                    help="title colour as #RGB, #RRGGBB or #RRGGBBAA (default #C4C4C4FF)")
+    p.add_argument("--no-sound", action="store_true",
+                   help="do not play the chime when START advances the count")
+    p.add_argument("--volume", type=int, default=70, metavar="0-100",
+                   help="chime volume percentage (default 70)")
     p.add_argument("--invert-dial", action="store_true",
                    help="invert the wheel direction")
     p.add_argument("--test", action="store_true", help="draw a single frame and exit")
@@ -112,6 +119,34 @@ def draw(elements, **extra):
 def clear():
     req = urllib.request.Request(
         BASE + "/api/display/draw?application_name=" + urllib.parse.quote(APP),
+        method="DELETE")
+    try:
+        with urllib.request.urlopen(req, timeout=5):
+            pass
+    except (urllib.error.URLError, OSError):
+        pass
+
+
+def upload_chime(payload):
+    q = urllib.parse.urlencode({"application_name": APP, "file": CHIME_FILE})
+    req = urllib.request.Request(BASE + "/api/assets/upload?" + q, data=payload,
+                                 method="POST",
+                                 headers={"Content-Type": "application/octet-stream"})
+    with urllib.request.urlopen(req, timeout=8):
+        pass
+
+
+def play_chime():
+    body = json.dumps({"application_name": APP, "path": CHIME_FILE}).encode()
+    req = urllib.request.Request(BASE + "/api/audio/play", data=body, method="POST",
+                                 headers={"Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=5):
+        pass
+
+
+def delete_assets():
+    req = urllib.request.Request(
+        BASE + "/api/assets/upload?application_name=" + urllib.parse.quote(APP),
         method="DELETE")
     try:
         with urllib.request.urlopen(req, timeout=5):
@@ -146,6 +181,80 @@ def parse_color(value):
         raise argparse.ArgumentTypeError(
             "colour must be #RGB, #RRGGBB or #RRGGBBAA, got %r" % value)
     return "#" + raw.upper()
+
+
+# --- the chime -------------------------------------------------------------
+# Lifted from queue-mgnt-system, where the sequence was measured off a real
+# queue-system call tone.
+#
+# Important: the first/last sound has its strongest spectral peak near 2890 Hz,
+# but that is the third harmonic. Autocorrelation shows a fundamental around
+# 960-963 Hz, which is the perceived pitch. Synthesizing a pure 2890 Hz sine
+# therefore sounds much too high. Those tones are reproduced as a 963 Hz
+# fundamental with strong 3rd and 5th harmonics, closer to the source timbre.
+
+CHIME_FILE = "counter-chime.wav"
+
+CHIME_SEQUENCE = [
+    (963.0, 0.060, "queue"),
+    (1225.0, 0.070, "tone"),
+    (1300.0, 0.070, "tone"),
+    (1455.0, 0.060, "tone"),
+    (1650.0, 0.060, "tone"),
+    (963.0, 0.205, "queue"),
+]
+
+
+def make_chime_wav(volume=70):
+    """Synthesize the chime as a mono 16-bit WAV.
+
+    ``volume`` is a 0..100 percentage applied while the samples are generated,
+    because the asset is uploaded once and then played back as it is."""
+    sample_rate = 44100
+    fade_s = 0.002
+    gain = max(0.0, min(1.0, volume / 100.0))
+    samples = []
+
+    for freq, duration, timbre in CHIME_SEQUENCE:
+        count = max(1, round(duration * sample_rate))
+        fade_n = max(1, min(count // 2, round(fade_s * sample_rate)))
+
+        for i in range(count):
+            t = i / sample_rate
+            envelope = 1.0
+            if i < fade_n:
+                envelope = i / fade_n
+            elif i >= count - fade_n:
+                envelope = (count - 1 - i) / fade_n
+
+            if timbre == "queue":
+                # Approximate the measured spectrum: weak fundamental, very
+                # strong 3rd harmonic, and a smaller 5th harmonic. Normalize
+                # the mixture to leave headroom and avoid clipping.
+                value = (
+                    0.20 * math.sin(2.0 * math.pi * freq * t)
+                    + 1.00 * math.sin(2.0 * math.pi * (freq * 3.0) * t)
+                    + 0.18 * math.sin(2.0 * math.pi * (freq * 5.0) * t)
+                ) / 1.38
+            else:
+                # Middle notes are correctly identified by their fundamentals.
+                # A light 3rd harmonic adds some of the buzzy source character
+                # without changing the perceived pitch.
+                value = (
+                    math.sin(2.0 * math.pi * freq * t)
+                    + 0.10 * math.sin(2.0 * math.pi * (freq * 3.0) * t)
+                ) / 1.10
+
+            value *= gain * envelope
+            samples.append(int(max(-1.0, min(1.0, value)) * 32767))
+
+    out = io.BytesIO()
+    with wave.open(out, "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(sample_rate)
+        wf.writeframes(struct.pack("<%dh" % len(samples), *samples))
+    return out.getvalue()
 
 
 # --- text metrics ----------------------------------------------------------
@@ -669,6 +778,7 @@ TITLE = "".join(ch if 0x20 <= ord(ch) <= 0x7E else "."
 
 START_INDEX = parse_start(FORMAT, ARGS.start)
 SAVING = ARGS.profile is not None and not ARGS.test
+VOLUME = max(0, min(100, ARGS.volume))
 
 
 def main():
@@ -683,6 +793,16 @@ def main():
         listener = InputListener(ARGS.host.replace("http://", "").rstrip("/"))
         listener.start()
 
+    # The chime is uploaded once and then played by name; a bar that will not
+    # take the asset is a reason to run silent, not to give up counting.
+    sound = not (ARGS.no_sound or ARGS.test)
+    if sound:
+        try:
+            upload_chime(make_chime_wav(VOLUME))
+        except (urllib.error.URLError, OSError) as exc:
+            print("counter: chime upload failed (%s); running silent" % exc)
+            sound = False
+
     print("counter: %s%s  format %s, step %+d%s  (%s)" % (
         TITLE + " " if TITLE else "", FORMAT.render(index), FORMAT.mask,
         ARGS.step, ", profile %r" % ARGS.profile if SAVING else "", BASE))
@@ -692,7 +812,8 @@ def main():
     if text_width(widest, VALUE_FONT) > W:
         print("counter: %r can reach %r, which is wider than the display; use "
               "fewer positions" % (FORMAT.mask, widest))
-    print("START = %+d  |  wheel = correct by one" % ARGS.step)
+    print("START = %+d  |  wheel = correct by one  |  chime %s" % (
+        ARGS.step, "%d%%" % VOLUME if sound else "off"))
 
     dirty = True
     title_sent = False
@@ -702,9 +823,11 @@ def main():
         while True:
             now = time.monotonic()
 
+            ring = False
             for kind, delta in (listener.poll() if listener else []):
                 if kind == "start":
                     index += ARGS.step
+                    ring = True
                 else:
                     # The wheel is a correction, so it moves one position at a
                     # time regardless of how big --step is.
@@ -728,6 +851,13 @@ def main():
                     title_sent = True
                     next_refresh = now + 5.0
                     dirty = False
+                    # Only START rings: the wheel is a correction, and a
+                    # refresh redraw is not a new count at all.
+                    if ring and sound:
+                        try:
+                            play_chime()
+                        except (urllib.error.URLError, OSError) as exc:
+                            print("counter: chime skipped (%s)" % exc)
                 except urllib.error.HTTPError as exc:
                     if exc.code != 409:   # 409 = a higher-priority app owns the display
                         raise
@@ -750,6 +880,7 @@ def main():
             listener.stop()
         if not ARGS.test:
             clear()
+            delete_assets()
 
 
 if __name__ == "__main__":
