@@ -5,9 +5,9 @@ Large, centered "NOW SERVING" header plus a ticket number from 1 to 99.
 START advances to the next ticket and plays the characteristic queue-system tone sequence.
 The rotary encoder corrects the currently served number manually without sound.
 
-    python3 queue_mgnt_system_ws_v12.py
-    python3 queue_mgnt_system_ws_v12.py --host 127.0.0.1:8080
-    python3 queue_mgnt_system_ws_v12.py --start-number 42
+    python3 app.py
+    python3 app.py --host 127.0.0.1:8080
+    python3 app.py --start-number 42
 
 Requires:
     pip install websockets
