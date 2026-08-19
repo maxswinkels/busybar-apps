@@ -133,6 +133,10 @@ def parse_args() -> argparse.Namespace:
         "--start-number", type=int, default=1,
         help="initial ticket number, clamped to 1..99 (default: 1)",
     )
+    p.add_argument(
+        "--auto-increment-every", type=float, default=0.0, metavar="SECONDS",
+        help="automatically advance the ticket every N seconds; 0 disables it (default: 0)",
+    )
     p.add_argument("--no-sound", action="store_true", help="disable queue chime")
     p.add_argument(
         "--invert-dial", action="store_true",
@@ -580,10 +584,50 @@ def run_test(number: int, lang: str) -> None:
     print(f"wrote {target} for ticket {number}")
 
 
+
+class ConsoleListener:
+    """Background console input: pressing Enter advances to the next ticket."""
+
+    def __init__(self) -> None:
+        self._queue: queue.Queue[str] = queue.Queue()
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._run, daemon=True)
+
+    def start(self) -> None:
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._stop.set()
+
+    def poll(self) -> bool:
+        """Return True if one or more Enter presses are pending."""
+        pressed = False
+        try:
+            while True:
+                self._queue.get_nowait()
+                pressed = True
+        except queue.Empty:
+            pass
+        return pressed
+
+    def _run(self) -> None:
+        import sys
+
+        while not self._stop.is_set():
+            try:
+                line = sys.stdin.readline()
+            except Exception:
+                return
+            if line == "":
+                return
+            self._queue.put(line)
+
+
 def main() -> None:
     args = parse_args()
     number = max(MIN_NUMBER, min(MAX_NUMBER, args.start_number))
     volume = max(0, min(100, args.volume))
+    auto_increment_every = max(0.0, float(args.auto_increment_every))
     if volume != args.volume:
         print(f"volume clamped to {volume}%")
 
@@ -593,12 +637,21 @@ def main() -> None:
 
     controls = InputListener(args.host, args.token)
     controls.start()
+    console = ConsoleListener()
+    console.start()
     io_client = BusyIO(args.host, args.lang)
 
     print(f"queue-mgnt-system -> {args.host}  (Ctrl-C to stop)")
     sound_info = "off" if args.no_sound else f"{volume}%"
     dial_info = "inverted" if args.invert_dial else "normal"
-    print(f"{TITLES[args.lang]} {number:02d}  |  START = next  |  wheel = correction ({dial_info})  |  volume = {sound_info}")
+    auto_info = "off" if auto_increment_every <= 0 else f"{auto_increment_every:g}s"
+    print(f"{TITLES[args.lang]} {number:02d}  |  START/Enter = next  |  wheel = correction ({dial_info})  |  volume = {sound_info}  |  auto = {auto_info}")
+    print("Press Enter to call the next number.")
+    next_auto_at = (
+        time.monotonic() + auto_increment_every
+        if auto_increment_every > 0
+        else None
+    )
 
     try:
         io_client.clear()
@@ -615,6 +668,24 @@ def main() -> None:
             changed = False
             ring = False
 
+            now = time.monotonic()
+
+            # Console shortcut: Enter behaves exactly like START.
+            if console.poll():
+                number = MIN_NUMBER if number >= MAX_NUMBER else number + 1
+                changed = True
+                ring = True
+                if auto_increment_every > 0:
+                    next_auto_at = now + auto_increment_every
+
+            # Optional unattended mode.
+            if next_auto_at is not None and now >= next_auto_at:
+                number = MIN_NUMBER if number >= MAX_NUMBER else number + 1
+                changed = True
+                ring = True
+                # Preserve cadence without rapid catch-up after a temporary stall.
+                next_auto_at = now + auto_increment_every
+
             for event in controls.poll():
                 encoder = event.get("encoder_event")
                 if encoder:
@@ -628,6 +699,8 @@ def main() -> None:
                         if new_number != number:
                             number = new_number
                             changed = True
+                            if auto_increment_every > 0:
+                                next_auto_at = now + auto_increment_every
 
                 button = event.get("button_event")
                 if button:
@@ -636,6 +709,8 @@ def main() -> None:
                         number = MIN_NUMBER if number >= MAX_NUMBER else number + 1
                         changed = True
                         ring = True
+                        if auto_increment_every > 0:
+                            next_auto_at = now + auto_increment_every
 
             if changed:
                 try:
