@@ -301,6 +301,7 @@ def render_frame(
     number = max(MIN_NUMBER, min(max_number, int(number)))
     buf = [BG] * (W * H)
 
+    # Header: 5 px high on rows 0..4.
     title = TITLES.get(lang, TITLES["en"])
     title_w = _title_width(title)
     tx = (W - title_w) // 2
@@ -311,41 +312,61 @@ def render_frame(
         x += len(glyph[0]) + 1
 
     digits = format_number(number, max_number, zero_padding)
-    digit_w, digit_gap = 6, 2
+
+    # The lower ticket area is rows 6..14 inclusive:
+    # row 5 is the required blank separator from the title;
+    # row 15 is the required blank row above the physical display edge.
+    TICKET_Y = 6
+    TICKET_H = 9
+
+    # Keep the original 6x9 digit shapes, but scale prefix letters to exactly
+    # the same 9-pixel height. This guarantees equal visual height and avoids
+    # clipping or missing bottom rows.
+    digit_w = 6
+    digit_gap = 2
     digits_w = len(digits) * digit_w + max(0, len(digits) - 1) * digit_gap
 
-    # Prefix uses the 3x5 font doubled to 6x10, visually matching the big digits.
     prefix_w = 0
     prefix_gap = 0
+    prefix_glyph = None
     if prefix:
-        glyph = FONT_3X5.get(prefix) if prefix.isalpha() else None
-        prefix_w = (len(glyph[0]) * 2) if glyph is not None else 6
+        if prefix.isalpha():
+            prefix_glyph = FONT_3X5[prefix]
+            # Scale 5 source rows to 9 output rows: 2,2,2,2,1.
+            # Scale width x2 so a 4px letter becomes 8px; I becomes 6px.
+            prefix_w = len(prefix_glyph[0]) * 2
+        else:
+            prefix_w = digit_w
         prefix_gap = 3
 
-    total_w = prefix_w + prefix_gap + digits_w
+    total_w = prefix_w + (prefix_gap if prefix else 0) + digits_w
     nx = (W - total_w) // 2
 
     if prefix:
-        glyph = FONT_3X5.get(prefix) if prefix.isalpha() else None
-        if glyph is not None:
-            # Scale the 5-row prefix glyph to exactly 9 pixels high so it
-            # visually matches the 6x9 numeric glyphs. Row heights: 2,2,2,2,1.
-            row_heights = (2, 2, 2, 2, 1)
-            y_cursor = 7
-            for gy, row in enumerate(glyph):
+        if prefix_glyph is not None:
+            # Scale 5 source rows to 9 output rows symmetrically.
+            # Keeping both the top and bottom source rows 2 px high avoids
+            # letters such as B/C looking clipped at the baseline.
+            row_heights = (2, 2, 1, 2, 2)
+            y_cursor = TICKET_Y
+            for gy, row in enumerate(prefix_glyph):
                 for gx, bit in enumerate(row):
                     if bit == "1":
                         for sy in range(row_heights[gy]):
                             for sx in (0, 1):
-                                _put(buf, nx + gx * 2 + sx, y_cursor + sy, number_color)
+                                _put(
+                                    buf,
+                                    nx + gx * 2 + sx,
+                                    y_cursor + sy,
+                                    number_color,
+                                )
                 y_cursor += row_heights[gy]
         else:
-            # Numeric prefix: use the native large digit glyph.
-            _draw_bitmap(buf, DIGITS_6X9[prefix], nx, 7, number_color)
+            _draw_bitmap(buf, DIGITS_6X9[prefix], nx, TICKET_Y, number_color)
         nx += prefix_w + prefix_gap
 
     for ch in digits:
-        _draw_bitmap(buf, DIGITS_6X9[ch], nx, 7, number_color)
+        _draw_bitmap(buf, DIGITS_6X9[ch], nx, TICKET_Y, number_color)
         nx += digit_w + digit_gap
 
     return buf
