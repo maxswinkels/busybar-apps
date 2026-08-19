@@ -5,9 +5,9 @@ Large, centered "NOW SERVING" header plus a ticket number from 1 to 99.
 START advances to the next ticket and plays the characteristic queue-system tone sequence.
 The rotary encoder corrects the currently served number manually without sound.
 
-    python3 app.py
-    python3 app.py --host 127.0.0.1:8080
-    python3 app.py --start-number 42
+    python3 queue_mgnt_system_ws_v12.py
+    python3 queue_mgnt_system_ws_v12.py --host 127.0.0.1:8080
+    python3 queue_mgnt_system_ws_v12.py --start-number 42
 
 Requires:
     pip install websockets
@@ -633,10 +633,9 @@ def main() -> None:
                 if button:
                     # Firmware enum: START=2, PRESS/default action=0.
                     if button.get("button") == 2 and button.get("action") == 0:
-                        if number < MAX_NUMBER:
-                            number += 1
-                            changed = True
-                            ring = True
+                        number = MIN_NUMBER if number >= MAX_NUMBER else number + 1
+                        changed = True
+                        ring = True
 
             if changed:
                 try:
