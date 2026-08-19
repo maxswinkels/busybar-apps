@@ -155,6 +155,10 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--lang", choices=["en", "fr", "it", "es", "de", "nl"], default="en",
                    help="display language (default: en)")
     p.add_argument(
+        "--title", default=None, metavar="TEXT",
+        help="override the localized title shown above the number",
+    )
+    p.add_argument(
         "--start-number", dest="start_number", type=int, default=0,
         help="initial ticket number (default: 0)",
     )
@@ -291,6 +295,7 @@ def render_frame(
     number: int,
     lang: str = "en",
     *,
+    title: str | None = None,
     max_number: int = DEFAULT_MAX_NUMBER,
     zero_padding: bool = True,
     prefix: str | None = None,
@@ -302,11 +307,16 @@ def render_frame(
     buf = [BG] * (W * H)
 
     # Header: 5 px high on rows 0..4.
-    title = TITLES.get(lang, TITLES["en"])
-    title_w = _title_width(title)
+    title_text = (title if title is not None else TITLES.get(lang, TITLES["en"])).upper()
+    unsupported = sorted(set(title_text) - set(FONT_3X5))
+    if unsupported:
+        raise ValueError(
+            "title contains unsupported character(s): " + ", ".join(repr(ch) for ch in unsupported)
+        )
+    title_w = _title_width(title_text)
     tx = (W - title_w) // 2
     x = tx
-    for ch in title:
+    for ch in title_text:
         glyph = FONT_3X5[ch]
         _draw_bitmap(buf, glyph, x, 0, text_color)
         x += len(glyph[0]) + 1
@@ -516,6 +526,7 @@ class BusyIO:
         host: str,
         lang: str = "en",
         *,
+        title: str | None = None,
         max_number: int = DEFAULT_MAX_NUMBER,
         zero_padding: bool = True,
         prefix: str | None = None,
@@ -524,6 +535,7 @@ class BusyIO:
     ) -> None:
         self.host = host
         self.lang = lang
+        self.title = title
         self.max_number = max_number
         self.zero_padding = zero_padding
         self.prefix = prefix
@@ -551,6 +563,7 @@ class BusyIO:
         status = self.upload(filename, png_bytes(render_frame(
             number,
             self.lang,
+            title=self.title,
             max_number=self.max_number,
             zero_padding=self.zero_padding,
             prefix=self.prefix,
@@ -773,6 +786,7 @@ def run_test(
     number: int,
     lang: str,
     *,
+    title: str | None,
     max_number: int,
     zero_padding: bool,
     prefix: str | None,
@@ -783,6 +797,7 @@ def run_test(
     frame = render_frame(
         number,
         lang,
+        title=title,
         max_number=max_number,
         zero_padding=zero_padding,
         prefix=prefix,
@@ -842,6 +857,14 @@ def main() -> None:
         raise SystemExit("--max-number must be at least 1")
 
     prefix = validate_prefix(args.number_prefix)
+    title = args.title.upper() if args.title is not None else None
+    if title is not None:
+        unsupported = sorted(set(title) - set(FONT_3X5))
+        if unsupported:
+            raise SystemExit(
+                "--title contains unsupported character(s): "
+                + ", ".join(repr(ch) for ch in unsupported)
+            )
     zero_padding = not args.no_zero_padding
     try:
         text_color = parse_color(args.text_color)
@@ -865,6 +888,7 @@ def main() -> None:
         run_test(
             number,
             args.lang,
+            title=title,
             max_number=max_number,
             zero_padding=zero_padding,
             prefix=prefix,
@@ -880,6 +904,7 @@ def main() -> None:
     io_client = BusyIO(
         args.host,
         args.lang,
+        title=title,
         max_number=max_number,
         zero_padding=zero_padding,
         prefix=prefix,
@@ -893,7 +918,8 @@ def main() -> None:
     auto_info = "off" if auto_increment_every <= 0 else f"{auto_increment_every:g}s"
     display_number = format_number(number, max_number, zero_padding)
     display_ticket = f"{prefix} {display_number}" if prefix else display_number
-    print(f"{TITLES[args.lang]} {display_ticket}  |  START/Enter = next  |  wheel = correction ({dial_info})  |  volume = {sound_info}  |  auto = {auto_info}")
+    console_title = title if title is not None else TITLES[args.lang]
+    print(f"{console_title} {display_ticket}  |  START/Enter = next  |  wheel = correction ({dial_info})  |  volume = {sound_info}  |  auto = {auto_info}")
     print("Press Enter to call the next number.")
     next_auto_at = (
         time.monotonic() + auto_increment_every
@@ -967,7 +993,7 @@ def main() -> None:
                     if status in (200, 201, 204):
                         display_number = format_number(number, max_number, zero_padding)
                         display_ticket = f"{prefix} {display_number}" if prefix else display_number
-                        print(f"{TITLES[args.lang]} {display_ticket}")
+                        print(f"{console_title} {display_ticket}")
                         if ring and not args.no_sound:
                             audio_status = io_client.play_chime()
                             if audio_status not in (200, 201, 204):
