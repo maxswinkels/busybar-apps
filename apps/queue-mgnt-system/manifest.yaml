@@ -1,0 +1,8 @@
+name: Queue Management System
+author: robynhub
+description: A simple queue management system for BUSY Bar with a large now-serving display, physical controls, multilingual labels, and an audible queue chime.
+tags:
+  - utility
+  - productivity
+  - queue
+preview: ./preview.png
