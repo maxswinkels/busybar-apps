@@ -29,9 +29,9 @@ written after that number change how it is counted:
 They combine: `A-99?+` counts A-1 .. A-99 and then B-1. Write `\\?` or `\\+` for
 either of them as a literal.
 
-START on the bar advances by --step; the wheel corrects by one. With --id the
-count is kept in counter-state.json next to this file and picked up again on the
-next run -- as a plain number, so the same profile can be reprinted in a
+START on the bar advances by --step, and the wheel corrects by --step in either
+direction. With --id the count is kept in counter-state.json next to this file
+and picked up again on the next run -- as a plain number, so the same profile can be reprinted in a
 different --format tomorrow. Passing --start ignores whatever was saved.
 """
 import argparse
@@ -84,7 +84,8 @@ def build_parser():
                    help="start here instead of at the saved value, written in "
                         "--format (e.g. A-42); a bare number is taken as a raw count")
     p.add_argument("--step", type=int, default=1,
-                   help="how far START advances; negative counts down (default 1)")
+                   help="how far START and one wheel detent move the count; "
+                        "negative counts down (default 1)")
     p.add_argument("--id", dest="profile", default=None,
                    help="remember the count under this name in counter-state.json, "
                         "and pick it up again on the next run; without it nothing "
@@ -812,8 +813,8 @@ def main():
     if text_width(widest, VALUE_FONT) > W:
         print("counter: %r can reach %r, which is wider than the display; use "
               "fewer positions" % (FORMAT.mask, widest))
-    print("START = %+d  |  wheel = correct by one  |  chime %s" % (
-        ARGS.step, "%d%%" % VOLUME if sound else "off"))
+    print("START = %+d  |  wheel = %+d per detent  |  chime %s" % (
+        ARGS.step, ARGS.step, "%d%%" % VOLUME if sound else "off"))
 
     dirty = True
     title_sent = False
@@ -829,9 +830,9 @@ def main():
                     index += ARGS.step
                     ring = True
                 else:
-                    # The wheel is a correction, so it moves one position at a
-                    # time regardless of how big --step is.
-                    index += -delta if ARGS.invert_dial else delta
+                    # The wheel corrects in the same units START counts in, so
+                    # one detent is worth one --step.
+                    index += (-delta if ARGS.invert_dial else delta) * ARGS.step
                 dirty = True
 
             index %= FORMAT.total
