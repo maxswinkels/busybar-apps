@@ -5,9 +5,9 @@ Large, centered "NOW SERVING" header plus a ticket number from 1 to 99.
 START advances to the next ticket and plays the characteristic queue-system tone sequence.
 The rotary encoder corrects the currently served number manually without sound.
 
-    python3 queue_mgnt_system_ws_v6.py
-    python3 queue_mgnt_system_ws_v6.py --host 127.0.0.1:8080
-    python3 queue_mgnt_system_ws_v6.py --start-number 42
+    python3 app.py
+    python3 app.py --host 127.0.0.1:8080
+    python3 app.py --start-number 42
 
 Requires:
     pip install websockets
@@ -118,7 +118,7 @@ TITLES = {
     "fr": "A VOUS",
     "it": "ORA SERVIAMO",
     "es": "SU TURNO",
-    "de": "SIE SIND DRAN",
+    "de": "AN DER REIHE",
     "nl": "AAN DE BEURT",
 }
 
@@ -576,7 +576,7 @@ class InputListener:
 def run_test(number: int, lang: str) -> None:
     from pathlib import Path
     target = Path("queue-mgnt-system-preview.png")
-    target.write_bytes(png_bytes(render_frame(number, self.lang)))
+    target.write_bytes(png_bytes(render_frame(number, lang)))
     print(f"wrote {target} for ticket {number}")
 
 
