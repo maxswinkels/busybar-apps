@@ -35,6 +35,7 @@ from pathlib import Path
 
 APP = "queue-mgnt-system"
 DEFAULT_HOST = "10.0.4.20"
+STATE_FILE = Path(__file__).resolve().with_name("queue-state.json")
 W, H = 72, 16
 MIN_NUMBER = 0
 DEFAULT_MAX_NUMBER = 99
@@ -183,8 +184,8 @@ def parse_args() -> argparse.Namespace:
         help="header text color: name or #RRGGBB (default: white)",
     )
     p.add_argument(
-        "--session-file", default=None, metavar="PATH",
-        help="persist the current ticket number in a text file; overrides --start-number",
+        "--id", default=None, metavar="PROFILE",
+        help="persist the current number under PROFILE in queue-state.json",
     )
     p.add_argument(
         "--auto-increment-every", type=float, default=0.0, metavar="SECONDS",
@@ -201,6 +202,13 @@ def parse_args() -> argparse.Namespace:
     )
     p.add_argument("--test", action="store_true", help="render a local PNG and exit")
     return p.parse_args()
+
+
+
+def cli_option_present(name: str) -> bool:
+    """Return True when a CLI option was explicitly supplied by the user."""
+    import sys
+    return any(arg == name or arg.startswith(name + "=") for arg in sys.argv[1:])
 
 
 
@@ -229,32 +237,38 @@ def format_number(number: int, max_number: int, zero_padding: bool = True) -> st
     return text.zfill(len(str(int(max_number))))
 
 
-def load_or_create_session(path: str, starting_number: int, max_number: int) -> int:
-    """Load current number from PATH, or create PATH with starting_number."""
-    session = Path(path).expanduser()
-    if session.exists():
-        try:
-            raw = session.read_text(encoding="utf-8").strip()
-            number = int(raw)
-        except (OSError, ValueError) as exc:
-            raise SystemExit(f"invalid session file {session}: {exc}")
-        return max(MIN_NUMBER, min(max_number, number))
-
-    session.parent.mkdir(parents=True, exist_ok=True)
-    number = max(MIN_NUMBER, min(max_number, starting_number))
-    save_session(path, number)
-    return number
+def load_state() -> dict[str, int]:
+    """Load all persisted queue profiles from queue-state.json."""
+    try:
+        data = json.loads(STATE_FILE.read_text(encoding="utf-8"))
+    except (OSError, ValueError, json.JSONDecodeError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    return {str(k): int(v) for k, v in data.items() if isinstance(v, int)}
 
 
-def save_session(path: str | None, number: int) -> None:
-    """Atomically persist the current ticket number when a session file is set."""
-    if not path:
+def load_profile(profile: str, fallback: int, max_number: int) -> int:
+    """Return the saved number for profile, or fallback if it has no state yet."""
+    saved = load_state().get(profile)
+    if saved is None:
+        return fallback
+    return max(MIN_NUMBER, min(max_number, int(saved)))
+
+
+def save_profile(profile: str | None, number: int) -> None:
+    """Atomically persist one named profile; without --id nothing is saved."""
+    if not profile:
         return
-    session = Path(path).expanduser()
-    session.parent.mkdir(parents=True, exist_ok=True)
-    tmp = session.with_name(session.name + ".tmp")
-    tmp.write_text(f"{int(number)}\n", encoding="utf-8")
-    os.replace(tmp, session)
+    data = load_state()
+    data[profile] = int(number)
+    tmp = STATE_FILE.with_name(STATE_FILE.name + ".tmp")
+    try:
+        tmp.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        os.replace(tmp, STATE_FILE)
+    except OSError as exc:
+        print(f"warning: cannot write {STATE_FILE}: {exc}")
+
 
 
 def validate_prefix(value: str | None) -> str | None:
@@ -873,11 +887,13 @@ def main() -> None:
         raise SystemExit(str(exc))
 
     starting_number = max(MIN_NUMBER, min(max_number, args.start_number))
-    number = (
-        load_or_create_session(args.session_file, starting_number, max_number)
-        if args.session_file
-        else starting_number
-    )
+    start_explicit = cli_option_present("--start-number")
+    if args.id and not start_explicit:
+        number = load_profile(args.id, starting_number, max_number)
+    else:
+        number = starting_number
+        if args.id:
+            save_profile(args.id, number)
 
     volume = max(0, min(100, args.volume))
     auto_increment_every = max(0.0, float(args.auto_increment_every))
@@ -919,7 +935,8 @@ def main() -> None:
     display_number = format_number(number, max_number, zero_padding)
     display_ticket = f"{prefix} {display_number}" if prefix else display_number
     console_title = title if title is not None else TITLES[args.lang]
-    print(f"{console_title} {display_ticket}  |  START/Enter = next  |  wheel = correction ({dial_info})  |  volume = {sound_info}  |  auto = {auto_info}")
+    profile_info = f"  |  id = {args.id}" if args.id else ""
+    print(f"{console_title} {display_ticket}  |  START/Enter = next  |  wheel = correction ({dial_info})  |  volume = {sound_info}  |  auto = {auto_info}{profile_info}")
     print("Press Enter to call the next number.")
     next_auto_at = (
         time.monotonic() + auto_increment_every
@@ -987,7 +1004,7 @@ def main() -> None:
                             next_auto_at = now + auto_increment_every
 
             if changed:
-                save_session(args.session_file, number)
+                save_profile(args.id, number)
                 try:
                     status = io_client.draw_number(number)
                     if status in (200, 201, 204):
