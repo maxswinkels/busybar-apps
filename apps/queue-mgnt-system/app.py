@@ -36,7 +36,7 @@ from pathlib import Path
 APP = "queue-mgnt-system"
 DEFAULT_HOST = "10.0.4.20"
 W, H = 72, 16
-MIN_NUMBER = 1
+MIN_NUMBER = 0
 DEFAULT_MAX_NUMBER = 99
 FRAME_FILE = "queue-frame.png"
 CHIME_FILE = "queue-chime.wav"
@@ -155,8 +155,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--lang", choices=["en", "fr", "it", "es", "de", "nl"], default="en",
                    help="display language (default: en)")
     p.add_argument(
-        "--start-number", dest="start_number", type=int, default=1,
-        help="initial ticket number (default: 1)",
+        "--start-number", dest="start_number", type=int, default=0,
+        help="initial ticket number (default: 0)",
     )
     p.add_argument(
         "--number-prefix", default=None, metavar="CHAR",
@@ -168,7 +168,7 @@ def parse_args() -> argparse.Namespace:
     )
     p.add_argument(
         "--max-number", type=int, default=DEFAULT_MAX_NUMBER,
-        help=f"highest ticket number before wrapping to 1 (default: {DEFAULT_MAX_NUMBER})",
+        help=f"highest ticket number before wrapping to 0 (default: {DEFAULT_MAX_NUMBER})",
     )
     p.add_argument(
         "--number-color", default="red", metavar="COLOR",
