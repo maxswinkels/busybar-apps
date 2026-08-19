@@ -155,7 +155,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--lang", choices=["en", "fr", "it", "es", "de", "nl"], default="en",
                    help="display language (default: en)")
     p.add_argument(
-        "--start-number", "--starting-number", dest="start_number", type=int, default=1,
+        "--start-number", dest="start_number", type=int, default=1,
         help="initial ticket number (default: 1)",
     )
     p.add_argument(
