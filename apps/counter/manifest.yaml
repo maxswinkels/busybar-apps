@@ -1,0 +1,8 @@
+name: Counter
+author: LuisWollenschneider
+description: A simple counter app with custom formatting and caching. For queue management, or just counting things.
+tags:
+  - utility
+  - counter
+  - info
+preview: ./preview.png
