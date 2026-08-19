@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """Queue management system for BUSY Bar.
 
-Large, centered "NOW SERVING" header plus a ticket number from 1 to 99.
+Large, centered queue header plus a configurable ticket number.
 START advances to the next ticket and plays the characteristic queue-system tone sequence.
 The rotary encoder corrects the currently served number manually without sound.
 
     python3 app.py
     python3 app.py --host 127.0.0.1:8080
     python3 app.py --start-number 42
+    python3 app.py --number-prefix A --max-number 999 --number-color red
 
 Requires:
     pip install websockets
@@ -18,6 +19,7 @@ import argparse
 import asyncio
 import io
 import math
+import os
 import queue
 import struct
 import threading
@@ -28,42 +30,65 @@ import urllib.parse
 import urllib.request
 import wave
 from typing import Iterable
+from pathlib import Path
 
 
 APP = "queue-mgnt-system"
 DEFAULT_HOST = "10.0.4.20"
 W, H = 72, 16
 MIN_NUMBER = 1
-MAX_NUMBER = 99
+DEFAULT_MAX_NUMBER = 99
 FRAME_FILE = "queue-frame.png"
 CHIME_FILE = "queue-chime.wav"
 
 BG = (0, 0, 0)
-TITLE_COLOR = (255, 255, 255)
-NUMBER_COLOR = (255, 210, 40)
+DEFAULT_TEXT_COLOR = (255, 255, 255)
+DEFAULT_NUMBER_COLOR = (255, 0, 0)
+
+COLOR_NAMES = {
+    "black": (0, 0, 0),
+    "white": (255, 255, 255),
+    "red": (255, 0, 0),
+    "green": (0, 255, 0),
+    "blue": (0, 0, 255),
+    "yellow": (255, 255, 0),
+    "orange": (255, 128, 0),
+    "purple": (160, 64, 255),
+    "pink": (255, 64, 160),
+    "cyan": (0, 255, 255),
+    "magenta": (255, 0, 255),
+}
 
 # 3x5 font, deliberately compact so "NOW SERVING" is prominent but leaves
 # enough vertical room for a very large ticket number below it.
 FONT_3X5 = {
     " ": ["000", "000", "000", "000", "000"],
     "A": ["010", "101", "111", "101", "101"],
-    "E": ["111", "100", "110", "100", "111"],
-    "G": ["011", "100", "101", "101", "011"],
-    "I": ["111", "010", "010", "010", "111"],
-    "N": ["101", "111", "111", "111", "101"],
-    "O": ["010", "101", "101", "101", "010"],
-    "R": ["110", "101", "110", "101", "101"],
-    "S": ["011", "100", "010", "001", "110"],
-    "V": ["101", "101", "101", "101", "010"],
-    "W": ["101", "101", "111", "111", "101"],
+    "B": ["110", "101", "110", "101", "110"],
     "C": ["011", "100", "100", "100", "011"],
     "D": ["110", "101", "101", "101", "110"],
+    "E": ["111", "100", "110", "100", "111"],
+    "F": ["111", "100", "110", "100", "100"],
+    "G": ["011", "100", "101", "101", "011"],
+    "H": ["101", "101", "111", "101", "101"],
+    "I": ["111", "010", "010", "010", "111"],
     "J": ["001", "001", "001", "101", "010"],
+    "K": ["101", "101", "110", "101", "101"],
     "L": ["100", "100", "100", "100", "111"],
     "M": ["101", "111", "111", "101", "101"],
+    "N": ["1001", "1101", "1011", "1001", "1001"],
+    "O": ["010", "101", "101", "101", "010"],
+    "P": ["110", "101", "110", "100", "100"],
+    "Q": ["010", "101", "101", "111", "011"],
+    "R": ["110", "101", "110", "101", "101"],
+    "S": ["011", "100", "010", "001", "110"],
     "T": ["111", "010", "010", "010", "010"],
     "U": ["101", "101", "101", "101", "111"],
+    "V": ["101", "101", "101", "101", "010"],
+    "W": ["101", "101", "111", "111", "101"],
+    "X": ["101", "101", "010", "101", "101"],
     "Y": ["101", "101", "010", "010", "010"],
+    "Z": ["111", "001", "010", "100", "111"],
 }
 
 # 6x9 digits. Each digit is intentionally wide and heavy for readability on
@@ -130,8 +155,32 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--lang", choices=["en", "fr", "it", "es", "de", "nl"], default="en",
                    help="display language (default: en)")
     p.add_argument(
-        "--start-number", type=int, default=1,
-        help="initial ticket number, clamped to 1..99 (default: 1)",
+        "--start-number", "--starting-number", dest="start_number", type=int, default=1,
+        help="initial ticket number (default: 1)",
+    )
+    p.add_argument(
+        "--number-prefix", default=None, metavar="CHAR",
+        help="single alphanumeric prefix shown before the number (always uppercase)",
+    )
+    p.add_argument(
+        "--no-zero-padding", action="store_true",
+        help="do not pad the number with leading zeroes",
+    )
+    p.add_argument(
+        "--max-number", type=int, default=DEFAULT_MAX_NUMBER,
+        help=f"highest ticket number before wrapping to 1 (default: {DEFAULT_MAX_NUMBER})",
+    )
+    p.add_argument(
+        "--number-color", default="red", metavar="COLOR",
+        help="number/prefix color: name or #RRGGBB (default: red)",
+    )
+    p.add_argument(
+        "--text-color", default="white", metavar="COLOR",
+        help="header text color: name or #RRGGBB (default: white)",
+    )
+    p.add_argument(
+        "--session-file", default=None, metavar="PATH",
+        help="persist the current ticket number in a text file; overrides --start-number",
     )
     p.add_argument(
         "--auto-increment-every", type=float, default=0.0, metavar="SECONDS",
@@ -148,6 +197,69 @@ def parse_args() -> argparse.Namespace:
     )
     p.add_argument("--test", action="store_true", help="render a local PNG and exit")
     return p.parse_args()
+
+
+
+def parse_color(value: str) -> tuple[int, int, int]:
+    """Parse a named color or #RRGGBB value."""
+    key = value.strip().lower()
+    if key in COLOR_NAMES:
+        return COLOR_NAMES[key]
+    if key.startswith("#"):
+        key = key[1:]
+    if len(key) == 6:
+        try:
+            return tuple(int(key[i:i + 2], 16) for i in (0, 2, 4))
+        except ValueError:
+            pass
+    raise argparse.ArgumentTypeError(
+        f"invalid color {value!r}; use a common name or #RRGGBB"
+    )
+
+
+def format_number(number: int, max_number: int, zero_padding: bool = True) -> str:
+    """Format the ticket using max-number's digit width for zero padding."""
+    text = str(int(number))
+    if not zero_padding:
+        return text
+    return text.zfill(len(str(int(max_number))))
+
+
+def load_or_create_session(path: str, starting_number: int, max_number: int) -> int:
+    """Load current number from PATH, or create PATH with starting_number."""
+    session = Path(path).expanduser()
+    if session.exists():
+        try:
+            raw = session.read_text(encoding="utf-8").strip()
+            number = int(raw)
+        except (OSError, ValueError) as exc:
+            raise SystemExit(f"invalid session file {session}: {exc}")
+        return max(MIN_NUMBER, min(max_number, number))
+
+    session.parent.mkdir(parents=True, exist_ok=True)
+    number = max(MIN_NUMBER, min(max_number, starting_number))
+    save_session(path, number)
+    return number
+
+
+def save_session(path: str | None, number: int) -> None:
+    """Atomically persist the current ticket number when a session file is set."""
+    if not path:
+        return
+    session = Path(path).expanduser()
+    session.parent.mkdir(parents=True, exist_ok=True)
+    tmp = session.with_name(session.name + ".tmp")
+    tmp.write_text(f"{int(number)}\n", encoding="utf-8")
+    os.replace(tmp, session)
+
+
+def validate_prefix(value: str | None) -> str | None:
+    if value is None:
+        return None
+    value = value.strip().upper()
+    if len(value) != 1 or not value.isascii() or not value.isalnum():
+        raise SystemExit("--number-prefix requires exactly one ASCII alphanumeric character")
+    return value
 
 
 def _put(buf: list[tuple[int, int, int]], x: int, y: int, rgb: tuple[int, int, int]) -> None:
@@ -169,36 +281,67 @@ def _draw_bitmap(
 
 
 def _title_width(text: str) -> int:
-    # 3 px glyph + 1 px gap, except after final glyph.
-    return len(text) * 4 - 1
+    """Pixel width of the variable-width 3x5 title font."""
+    if not text:
+        return 0
+    return sum(len(FONT_3X5[ch][0]) + 1 for ch in text) - 1
 
 
-def render_frame(number: int, lang: str = "en") -> list[tuple[int, int, int]]:
-    """Render a full 72x16 frame with guaranteed non-overlapping layout."""
-    number = max(MIN_NUMBER, min(MAX_NUMBER, int(number)))
+def render_frame(
+    number: int,
+    lang: str = "en",
+    *,
+    max_number: int = DEFAULT_MAX_NUMBER,
+    zero_padding: bool = True,
+    prefix: str | None = None,
+    text_color: tuple[int, int, int] = DEFAULT_TEXT_COLOR,
+    number_color: tuple[int, int, int] = DEFAULT_NUMBER_COLOR,
+) -> list[tuple[int, int, int]]:
+    """Render a full 72x16 frame with a centered localized title and ticket."""
+    number = max(MIN_NUMBER, min(max_number, int(number)))
     buf = [BG] * (W * H)
 
     title = TITLES.get(lang, TITLES["en"])
     title_w = _title_width(title)
     tx = (W - title_w) // 2
-    ty = 0
     x = tx
     for ch in title:
         glyph = FONT_3X5[ch]
-        _draw_bitmap(buf, glyph, x, ty, TITLE_COLOR)
-        x += 4
+        _draw_bitmap(buf, glyph, x, 0, text_color)
+        x += len(glyph[0]) + 1
 
-    # Row 5 is intentionally blank. Digits occupy rows 7..15, leaving row 6
-    # blank as well: two full black rows separate the header from the number.
-    s = str(number)
-    digit_w = 6
-    gap = 2
-    total_w = len(s) * digit_w + (len(s) - 1) * gap
+    digits = format_number(number, max_number, zero_padding)
+    digit_w, digit_gap = 6, 2
+    digits_w = len(digits) * digit_w + max(0, len(digits) - 1) * digit_gap
+
+    # Prefix uses the 3x5 font doubled to 6x10, visually matching the big digits.
+    prefix_w = 0
+    prefix_gap = 0
+    if prefix:
+        prefix_w = 6
+        prefix_gap = 3
+
+    total_w = prefix_w + prefix_gap + digits_w
     nx = (W - total_w) // 2
-    ny = 7
-    for ch in s:
-        _draw_bitmap(buf, DIGITS_6X9[ch], nx, ny, NUMBER_COLOR)
-        nx += digit_w + gap
+
+    if prefix:
+        glyph = FONT_3X5.get(prefix) if prefix.isalpha() else None
+        if glyph is not None:
+            # 2x scaling: 3x5 -> 6x10, rows 6..15.
+            for gy, row in enumerate(glyph):
+                for gx, bit in enumerate(row):
+                    if bit == "1":
+                        for sy in (0, 1):
+                            for sx in (0, 1):
+                                _put(buf, nx + gx * 2 + sx, 6 + gy * 2 + sy, number_color)
+        else:
+            # Numeric prefix: use the native large digit glyph.
+            _draw_bitmap(buf, DIGITS_6X9[prefix], nx, 7, number_color)
+        nx += prefix_w + prefix_gap
+
+    for ch in digits:
+        _draw_bitmap(buf, DIGITS_6X9[ch], nx, 7, number_color)
+        nx += digit_w + digit_gap
 
     return buf
 
@@ -342,9 +485,24 @@ def _api_request(
 class BusyIO:
     """Minimal HTTP client for display/assets/audio. No busylib dependency."""
 
-    def __init__(self, host: str, lang: str = "en") -> None:
+    def __init__(
+        self,
+        host: str,
+        lang: str = "en",
+        *,
+        max_number: int = DEFAULT_MAX_NUMBER,
+        zero_padding: bool = True,
+        prefix: str | None = None,
+        text_color: tuple[int, int, int] = DEFAULT_TEXT_COLOR,
+        number_color: tuple[int, int, int] = DEFAULT_NUMBER_COLOR,
+    ) -> None:
         self.host = host
         self.lang = lang
+        self.max_number = max_number
+        self.zero_padding = zero_padding
+        self.prefix = prefix
+        self.text_color = text_color
+        self.number_color = number_color
         self._frame_no = 0
 
     def upload(self, filename: str, payload: bytes) -> int:
@@ -364,7 +522,15 @@ class BusyIO:
         # the display is reading it; re-uploading the same name may return 508.
         filename = f"queue-frame-{self._frame_no % 4}.png"
         self._frame_no += 1
-        status = self.upload(filename, png_bytes(render_frame(number, self.lang)))
+        status = self.upload(filename, png_bytes(render_frame(
+            number,
+            self.lang,
+            max_number=self.max_number,
+            zero_padding=self.zero_padding,
+            prefix=self.prefix,
+            text_color=self.text_color,
+            number_color=self.number_color,
+        )))
         if status not in (200, 201, 204):
             return status
         body = json.dumps({
@@ -577,11 +743,30 @@ class InputListener:
                     await asyncio.sleep(min(0.25, deadline - time.monotonic()))
                 backoff = min(max_backoff, backoff * 2.0)
 
-def run_test(number: int, lang: str) -> None:
-    from pathlib import Path
+def run_test(
+    number: int,
+    lang: str,
+    *,
+    max_number: int,
+    zero_padding: bool,
+    prefix: str | None,
+    text_color: tuple[int, int, int],
+    number_color: tuple[int, int, int],
+) -> None:
     target = Path("queue-mgnt-system-preview.png")
-    target.write_bytes(png_bytes(render_frame(number, lang)))
-    print(f"wrote {target} for ticket {number}")
+    frame = render_frame(
+        number,
+        lang,
+        max_number=max_number,
+        zero_padding=zero_padding,
+        prefix=prefix,
+        text_color=text_color,
+        number_color=number_color,
+    )
+    target.write_bytes(png_bytes(frame))
+    label = (prefix + " ") if prefix else ""
+    label += format_number(number, max_number, zero_padding)
+    print(f"wrote {target} for ticket {label}")
 
 
 
@@ -625,27 +810,64 @@ class ConsoleListener:
 
 def main() -> None:
     args = parse_args()
-    number = max(MIN_NUMBER, min(MAX_NUMBER, args.start_number))
+
+    max_number = int(args.max_number)
+    if max_number < MIN_NUMBER:
+        raise SystemExit("--max-number must be at least 1")
+
+    prefix = validate_prefix(args.number_prefix)
+    zero_padding = not args.no_zero_padding
+    try:
+        text_color = parse_color(args.text_color)
+        number_color = parse_color(args.number_color)
+    except argparse.ArgumentTypeError as exc:
+        raise SystemExit(str(exc))
+
+    starting_number = max(MIN_NUMBER, min(max_number, args.start_number))
+    number = (
+        load_or_create_session(args.session_file, starting_number, max_number)
+        if args.session_file
+        else starting_number
+    )
+
     volume = max(0, min(100, args.volume))
     auto_increment_every = max(0.0, float(args.auto_increment_every))
     if volume != args.volume:
         print(f"volume clamped to {volume}%")
 
     if args.test:
-        run_test(number, args.lang)
+        run_test(
+            number,
+            args.lang,
+            max_number=max_number,
+            zero_padding=zero_padding,
+            prefix=prefix,
+            text_color=text_color,
+            number_color=number_color,
+        )
         return
 
     controls = InputListener(args.host, args.token)
     controls.start()
     console = ConsoleListener()
     console.start()
-    io_client = BusyIO(args.host, args.lang)
+    io_client = BusyIO(
+        args.host,
+        args.lang,
+        max_number=max_number,
+        zero_padding=zero_padding,
+        prefix=prefix,
+        text_color=text_color,
+        number_color=number_color,
+    )
 
     print(f"queue-mgnt-system -> {args.host}  (Ctrl-C to stop)")
     sound_info = "off" if args.no_sound else f"{volume}%"
     dial_info = "inverted" if args.invert_dial else "normal"
     auto_info = "off" if auto_increment_every <= 0 else f"{auto_increment_every:g}s"
-    print(f"{TITLES[args.lang]} {number:02d}  |  START/Enter = next  |  wheel = correction ({dial_info})  |  volume = {sound_info}  |  auto = {auto_info}")
+    display_number = format_number(number, max_number, zero_padding)
+    display_ticket = f"{prefix} {display_number}" if prefix else display_number
+    print(f"{TITLES[args.lang]} {display_ticket}  |  START/Enter = next  |  wheel = correction ({dial_info})  |  volume = {sound_info}  |  auto = {auto_info}")
     print("Press Enter to call the next number.")
     next_auto_at = (
         time.monotonic() + auto_increment_every
@@ -672,7 +894,7 @@ def main() -> None:
 
             # Console shortcut: Enter behaves exactly like START.
             if console.poll():
-                number = MIN_NUMBER if number >= MAX_NUMBER else number + 1
+                number = MIN_NUMBER if number >= max_number else number + 1
                 changed = True
                 ring = True
                 if auto_increment_every > 0:
@@ -680,7 +902,7 @@ def main() -> None:
 
             # Optional unattended mode.
             if next_auto_at is not None and now >= next_auto_at:
-                number = MIN_NUMBER if number >= MAX_NUMBER else number + 1
+                number = MIN_NUMBER if number >= max_number else number + 1
                 changed = True
                 ring = True
                 # Preserve cadence without rapid catch-up after a temporary stall.
@@ -695,7 +917,7 @@ def main() -> None:
                         # --invert-dial flips it back when the physical mounting
                         # or user preference requires the opposite direction.
                         step = -delta if args.invert_dial else delta
-                        new_number = max(MIN_NUMBER, min(MAX_NUMBER, number + step))
+                        new_number = max(MIN_NUMBER, min(max_number, number + step))
                         if new_number != number:
                             number = new_number
                             changed = True
@@ -706,17 +928,20 @@ def main() -> None:
                 if button:
                     # Firmware enum: START=2, PRESS/default action=0.
                     if button.get("button") == 2 and button.get("action") == 0:
-                        number = MIN_NUMBER if number >= MAX_NUMBER else number + 1
+                        number = MIN_NUMBER if number >= max_number else number + 1
                         changed = True
                         ring = True
                         if auto_increment_every > 0:
                             next_auto_at = now + auto_increment_every
 
             if changed:
+                save_session(args.session_file, number)
                 try:
                     status = io_client.draw_number(number)
                     if status in (200, 201, 204):
-                        print(f"{TITLES[args.lang]} {number:02d}")
+                        display_number = format_number(number, max_number, zero_padding)
+                        display_ticket = f"{prefix} {display_number}" if prefix else display_number
+                        print(f"{TITLES[args.lang]} {display_ticket}")
                         if ring and not args.no_sound:
                             audio_status = io_client.play_chime()
                             if audio_status not in (200, 201, 204):
