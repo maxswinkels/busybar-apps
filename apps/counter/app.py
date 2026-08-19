@@ -88,8 +88,8 @@ def build_parser():
                         "is saved")
     p.add_argument("--color", default="#FFD228FF",
                    help="counter colour as #RGB, #RRGGBB or #RRGGBBAA (default #FFD228FF)")
-    p.add_argument("--title-color", default="#7A8899FF",
-                   help="title colour as #RGB, #RRGGBB or #RRGGBBAA (default #7A8899FF)")
+    p.add_argument("--title-color", default="#C4C4C4FF",
+                   help="title colour as #RGB, #RRGGBB or #RRGGBBAA (default #C4C4C4FF)")
     p.add_argument("--invert-dial", action="store_true",
                    help="invert the wheel direction")
     p.add_argument("--test", action="store_true", help="draw a single frame and exit")
