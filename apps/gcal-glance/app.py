@@ -2566,47 +2566,57 @@ class InputListener:
         try:
             from busylib import AsyncBusyBar  # type: ignore[import-untyped]
 
-            kwargs: dict[str, Any] = {"token": self.token} if self.token else {}
-            bb = AsyncBusyBar(self.host, **kwargs)
-            try:
-                async for msg in bb.stream_status_ws():
-                    if self._stop.is_set():
-                        break
-                    if not isinstance(msg, dict):
-                        continue
-                    for upd in msg.get("updates", []):
-                        inp = upd.get("input")
-                        if not inp:
-                            continue
-                        if "button_event" in inp:
-                            be = inp["button_event"]
-                            btn_name = str(be.get("button", "OK")).upper()
-                            btn_id = (
-                                BTN_START
-                                if btn_name == "START"
-                                else BTN_BACK
-                                if btn_name == "BACK"
-                                else BTN_OK
-                            )
-                            action_name = str(be.get("action", "PRESS")).upper()
-                            action_id = (
-                                ACTION_RELEASE
-                                if action_name == "RELEASE"
-                                else ACTION_PRESS
-                            )
-                            self.queue.put_nowait(("button", (btn_id, action_id)))
-                        if "encoder_event" in inp:
-                            delta = int(inp["encoder_event"].get("delta", 0))
-                            if delta != 0:
-                                self.queue.put_nowait(("encoder", delta))
-                return
-            except Exception:
-                pass
-            finally:
+            backoff = 1.0
+            while not self._stop.is_set():
+                kwargs: dict[str, Any] = {"token": self.token} if self.token else {}
+                bb = AsyncBusyBar(self.host, **kwargs)
                 try:
-                    await bb.aclose()
+                    async for msg in bb.stream_status_ws():
+                        if self._stop.is_set():
+                            break
+                        backoff = 1.0
+                        if not isinstance(msg, dict):
+                            continue
+                        for upd in msg.get("updates", []):
+                            inp = upd.get("input")
+                            if not inp:
+                                continue
+                            if "button_event" in inp:
+                                be = inp["button_event"]
+                                btn_name = str(be.get("button", "OK")).upper()
+                                btn_id = (
+                                    BTN_START
+                                    if btn_name == "START"
+                                    else BTN_BACK
+                                    if btn_name == "BACK"
+                                    else BTN_OK
+                                )
+                                action_name = str(be.get("action", "PRESS")).upper()
+                                action_id = (
+                                    ACTION_RELEASE
+                                    if action_name == "RELEASE"
+                                    else ACTION_PRESS
+                                )
+                                self.queue.put_nowait(("button", (btn_id, action_id)))
+                            if "encoder_event" in inp:
+                                delta = int(inp["encoder_event"].get("delta", 0))
+                                if delta != 0:
+                                    self.queue.put_nowait(("encoder", delta))
+                except asyncio.CancelledError:
+                    break
                 except Exception:
                     pass
+                finally:
+                    try:
+                        await bb.aclose()
+                    except Exception:
+                        pass
+
+                if self._stop.is_set():
+                    break
+                await asyncio.sleep(backoff)
+                backoff = min(10.0, backoff * 1.5)
+            return
         except ImportError:
             pass
 
@@ -2635,11 +2645,9 @@ class InputListener:
         while not self._stop.is_set():
             try:
                 async with websockets.connect(
-                    url, open_timeout=5, ping_interval=20
+                    url, open_timeout=5, ping_interval=None, ping_timeout=None
                 ) as ws:
-                    await ws.send(json.dumps({"enable": True}))
                     backoff = 1.0
-                    print(f"[input] connected to {url}", flush=True)
                     async for msg in ws:
                         if self._stop.is_set():
                             break
