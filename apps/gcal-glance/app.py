@@ -182,9 +182,9 @@ class AppConfig(BaseSettings):
         ),
     )
 
-    # Ignore all-day calendar events (default: False)
+    # Ignore all-day calendar events (default: True)
     ignore_all_day: bool = Field(
-        default=False,
+        default=True,
         validation_alias=AliasChoices(
             "GCAL_GLANCE_IGNORE_ALL_DAY",
             "GCAL_IGNORE_ALL_DAY",
@@ -391,9 +391,12 @@ def _parse_args() -> argparse.Namespace:
     )
     p.add_argument(
         "--ignore-all-day",
-        action="store_true",
+        action=argparse.BooleanOptionalAction,
         default=cfg.ignore_all_day,
-        help="Ignore all-day calendar events (or set GCAL_GLANCE_IGNORE_ALL_DAY=true)",
+        help=(
+            "Ignore all-day calendar events (default: True, use"
+            " --no-ignore-all-day to include)"
+        ),
     )
     args, _ = p.parse_known_args()
     set_config(

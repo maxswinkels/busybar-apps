@@ -80,14 +80,14 @@ def test_parse_ical_datetime_tzid() -> None:
 
 
 def test_parse_ical_datetime_allday_events(monkeypatch: pytest.MonkeyPatch) -> None:
-    # By default (ignore_all_day=False), all-day events are parsed into a valid datetime
-    dt = _parse_ical_datetime("20260815", "VALUE=DATE")
-    assert dt is not None
-
-    # When ignore_all_day=True, all-day events return None
-    monkeypatch.setattr(app.get_config(), "ignore_all_day", True)
+    # By default (ignore_all_day=True), all-day events return None
     assert _parse_ical_datetime("20260815", "VALUE=DATE") is None
     assert _parse_ical_datetime("20260815") is None
+
+    # When ignore_all_day=False, all-day events are parsed into a valid datetime
+    monkeypatch.setattr(app.get_config(), "ignore_all_day", False)
+    dt = _parse_ical_datetime("20260815", "VALUE=DATE")
+    assert dt is not None
 
 
 def test_unfold_and_unescape_ical() -> None:
