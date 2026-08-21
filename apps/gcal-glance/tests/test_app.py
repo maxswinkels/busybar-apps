@@ -17,6 +17,7 @@ from app import (
     CalendarEvent,
     DisplayElement,
     GlyphType,
+    _expand_rrule,
     _parse_ical_datetime,
     _unescape_ical,
     _unfold_ical,
@@ -297,6 +298,53 @@ END:VCALENDAR
     assert events[0].summary == "Bill + Gabriel"
     assert events[0].start == datetime(2026, 8, 21, 18, 0, 0, tzinfo=timezone.utc)
     assert events[0].end == datetime(2026, 8, 21, 18, 40, 0, tzinfo=timezone.utc)
+
+
+def test_expand_rrule_differential_validation_against_dateutil() -> None:
+    """Validate stdlib _expand_rrule directly against dateutil.rrule across rules."""
+    import re
+    from zoneinfo import ZoneInfo
+
+    from dateutil import rrule
+
+    def normalize_for_dateutil(rrule_str: str) -> str:
+        rrule_str = re.sub(r"UNTIL=(\d{8})(?!T)", r"UNTIL=\1T235959Z", rrule_str)
+        rrule_str = re.sub(r"UNTIL=(\d{8}T\d{6})(?!Z)", r"UNTIL=\1Z", rrule_str)
+        return rrule_str
+
+    tz_ny = ZoneInfo("America/New_York")
+    test_cases = [
+        (datetime(2025, 1, 1, 9, 0, tzinfo=tz_ny), "FREQ=DAILY;INTERVAL=3"),
+        (
+            datetime(2025, 1, 1, 10, 0, tzinfo=tz_ny),
+            "FREQ=WEEKLY;INTERVAL=2;BYDAY=TU,TH",
+        ),
+        (
+            datetime(2025, 1, 1, 11, 0, tzinfo=tz_ny),
+            "FREQ=WEEKLY;COUNT=10;BYDAY=MO,WE,FR",
+        ),
+        (datetime(2025, 11, 21, 14, 0, tzinfo=tz_ny), "FREQ=MONTHLY;BYDAY=3FR"),
+        (datetime(2025, 1, 15, 16, 30, tzinfo=tz_ny), "FREQ=MONTHLY;BYMONTHDAY=15"),
+        (datetime(2024, 8, 15, 12, 0, tzinfo=tz_ny), "FREQ=YEARLY"),
+    ]
+
+    window_start = datetime(2026, 8, 1, 0, 0, tzinfo=timezone.utc)
+    window_end = datetime(2026, 10, 1, 0, 0, tzinfo=timezone.utc)
+
+    for dtstart, rule_str in test_cases:
+        stdlib_res = _expand_rrule(dtstart, rule_str, window_start, window_end)
+
+        norm_rule = normalize_for_dateutil(rule_str)
+        du_rule = rrule.rrulestr(norm_rule, dtstart=dtstart)
+        local_tz = dtstart.tzinfo or timezone.utc
+        local_win_start = window_start.astimezone(local_tz)
+        local_win_end = window_end.astimezone(local_tz)
+        du_res = [
+            occ.astimezone(timezone.utc)
+            for occ in du_rule.between(local_win_start, local_win_end, inc=True)
+        ]
+
+        assert stdlib_res == du_res, f"Mismatch for {rule_str}"
 
 
 @pytest.mark.asyncio
