@@ -17,6 +17,7 @@ from app import (
     CalendarEvent,
     DisplayElement,
     GlyphType,
+    _expand_rrule,
     _parse_ical_datetime,
     _unescape_ical,
     _unfold_ical,
@@ -78,9 +79,15 @@ def test_parse_ical_datetime_tzid() -> None:
     assert dt.hour == 14 and dt.minute == 0
 
 
-def test_parse_ical_datetime_allday_skipped() -> None:
+def test_parse_ical_datetime_allday_events(monkeypatch: pytest.MonkeyPatch) -> None:
+    # By default (include_all_day=False), all-day events return None
     assert _parse_ical_datetime("20260815", "VALUE=DATE") is None
     assert _parse_ical_datetime("20260815") is None
+
+    # When include_all_day=True, all-day events are parsed into a valid datetime
+    monkeypatch.setattr(app.get_config(), "include_all_day", True)
+    dt = _parse_ical_datetime("20260815", "VALUE=DATE")
+    assert dt is not None
 
 
 def test_unfold_and_unescape_ical() -> None:
@@ -136,6 +143,214 @@ async def test_fetch_events_success(mock_busy_bar_api: respx.MockRouter) -> None
     assert events[1].uid == "event-2@google.com"
     assert events[1].summary == "[dnd] Deep Focus Block"
     assert events[1].location == "Desk"
+
+
+@pytest.mark.asyncio
+async def test_fetch_events_recurring_rrule_upcoming(
+    mock_busy_bar_api: respx.MockRouter, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A recurring event with past DTSTART should produce upcoming occurrences."""
+    # Freeze datetime to 2026-08-21 14:00:00 UTC (10:00 AM EDT)
+    fixed_now = datetime(2026, 8, 21, 14, 0, 0, tzinfo=timezone.utc)
+
+    # 1. Weekly recurring Friday 18:00 UTC (2:00 PM EDT) started in Jan 2026
+    # 2. Future single event on Saturday Aug 22, 2026
+    recurring_ics = """BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//Google Inc//Google Calendar 70.9054//EN
+BEGIN:VEVENT
+UID:recurring-weekly@google.com
+SUMMARY:Weekly Team Sync
+LOCATION:Meet
+DTSTART:20260102T180000Z
+DTEND:20260102T183000Z
+RRULE:FREQ=WEEKLY;BYDAY=FR
+END:VEVENT
+BEGIN:VEVENT
+UID:future-single@google.com
+SUMMARY:Saturday Workshop
+LOCATION:Office
+DTSTART:20260822T130000Z
+DTEND:20260822T140000Z
+END:VEVENT
+END:VCALENDAR
+"""
+    ical_url = "https://calendar.google.com/calendar/ical/feed/basic.ics"
+    mock_busy_bar_api.get(ical_url).respond(status_code=200, text=recurring_ics)
+
+    # Monkeypatch datetime.now in app module
+    class FixedDateTime(datetime):
+        @classmethod
+        def now(cls, tz: Any = None) -> datetime:
+            if tz is not None:
+                return fixed_now.astimezone(tz)
+            return fixed_now
+
+    monkeypatch.setattr(app, "datetime", FixedDateTime)
+
+    async with httpx.AsyncClient() as client:
+        events = await fetch_events(client, ical_url)
+
+    assert events is not None
+    # The immediate next event MUST be the occurrence on 2026-08-21 18:00 UTC
+    assert len(events) >= 2
+    assert events[0].summary == "Weekly Team Sync"
+    assert events[0].start == datetime(2026, 8, 21, 18, 0, 0, tzinfo=timezone.utc)
+    assert events[0].end == datetime(2026, 8, 21, 18, 30, 0, tzinfo=timezone.utc)
+    assert events[1].summary == "Saturday Workshop"
+
+
+@pytest.mark.asyncio
+async def test_fetch_events_recurring_exdate_and_recurrence_id(
+    mock_busy_bar_api: respx.MockRouter, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """EXDATE skips cancelled occurrences; RECURRENCE-ID overrides instances."""
+    fixed_now = datetime(2026, 8, 21, 14, 0, 0, tzinfo=timezone.utc)
+
+    # Weekly Friday event at 18:00 UTC.
+    # Aug 21 instance is overridden with RECURRENCE-ID and moved to 19:00 UTC.
+    # Aug 28 instance is excluded via EXDATE.
+    ics_content = """BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//Google Inc//Google Calendar 70.9054//EN
+BEGIN:VEVENT
+UID:recurring-base@google.com
+SUMMARY:Friday Coffee
+DTSTART:20260102T180000Z
+DTEND:20260102T183000Z
+RRULE:FREQ=WEEKLY;BYDAY=FR
+EXDATE:20260828T180000Z
+END:VEVENT
+BEGIN:VEVENT
+UID:recurring-base@google.com
+RECURRENCE-ID:20260821T180000Z
+SUMMARY:Friday Coffee (Rescheduled)
+DTSTART:20260821T190000Z
+DTEND:20260821T193000Z
+END:VEVENT
+BEGIN:VEVENT
+UID:cancelled-event@google.com
+SUMMARY:Cancelled Meeting
+STATUS:CANCELLED
+DTSTART:20260821T200000Z
+DTEND:20260821T210000Z
+END:VEVENT
+END:VCALENDAR
+"""
+    ical_url = "https://calendar.google.com/calendar/ical/feed/basic.ics"
+    mock_busy_bar_api.get(ical_url).respond(status_code=200, text=ics_content)
+
+    class FixedDateTime(datetime):
+        @classmethod
+        def now(cls, tz: Any = None) -> datetime:
+            if tz is not None:
+                return fixed_now.astimezone(tz)
+            return fixed_now
+
+    monkeypatch.setattr(app, "datetime", FixedDateTime)
+
+    async with httpx.AsyncClient() as client:
+        events = await fetch_events(client, ical_url)
+
+    assert events is not None
+    # Cancelled event must not appear
+    assert not any(e.summary == "Cancelled Meeting" for e in events)
+    # Aug 21 occurrence is overridden to 19:00
+    assert events[0].summary == "Friday Coffee (Rescheduled)"
+    assert events[0].start == datetime(2026, 8, 21, 19, 0, 0, tzinfo=timezone.utc)
+    # Aug 28 occurrence was in EXDATE, so next base occurrence is Sep 04
+    assert events[1].summary == "Friday Coffee"
+    assert events[1].start == datetime(2026, 9, 4, 18, 0, 0, tzinfo=timezone.utc)
+
+
+@pytest.mark.asyncio
+async def test_fetch_events_monthly_rrule(
+    mock_busy_bar_api: respx.MockRouter, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Monthly BYDAY recurrence (e.g. 3rd Friday of month)."""
+    fixed_now = datetime(2026, 8, 21, 14, 0, 0, tzinfo=timezone.utc)
+
+    # 3rd Friday of every month at 14:00 America/New_York (18:00 UTC)
+    # Aug 21, 2026 is 3rd Friday of August 2026
+    monthly_ics = """BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//Google Inc//Google Calendar 70.9054//EN
+BEGIN:VEVENT
+UID:monthly-3fr@google.com
+SUMMARY:Bill + Gabriel
+DTSTART;TZID=America/New_York:20251121T140000
+DTEND;TZID=America/New_York:20251121T144000
+RRULE:FREQ=MONTHLY;BYDAY=3FR
+END:VEVENT
+END:VCALENDAR
+"""
+    ical_url = "https://calendar.google.com/calendar/ical/feed/basic.ics"
+    mock_busy_bar_api.get(ical_url).respond(status_code=200, text=monthly_ics)
+
+    class FixedDateTime(datetime):
+        @classmethod
+        def now(cls, tz: Any = None) -> datetime:
+            if tz is not None:
+                return fixed_now.astimezone(tz)
+            return fixed_now
+
+    monkeypatch.setattr(app, "datetime", FixedDateTime)
+
+    async with httpx.AsyncClient() as client:
+        events = await fetch_events(client, ical_url)
+
+    assert events is not None
+    assert len(events) >= 1
+    assert events[0].summary == "Bill + Gabriel"
+    assert events[0].start == datetime(2026, 8, 21, 18, 0, 0, tzinfo=timezone.utc)
+    assert events[0].end == datetime(2026, 8, 21, 18, 40, 0, tzinfo=timezone.utc)
+
+
+def test_expand_rrule_differential_validation_against_dateutil() -> None:
+    """Validate stdlib _expand_rrule directly against dateutil.rrule across rules."""
+    import re
+    from zoneinfo import ZoneInfo
+
+    from dateutil import rrule
+
+    def normalize_for_dateutil(rrule_str: str) -> str:
+        rrule_str = re.sub(r"UNTIL=(\d{8})(?!T)", r"UNTIL=\1T235959Z", rrule_str)
+        rrule_str = re.sub(r"UNTIL=(\d{8}T\d{6})(?!Z)", r"UNTIL=\1Z", rrule_str)
+        return rrule_str
+
+    tz_ny = ZoneInfo("America/New_York")
+    test_cases = [
+        (datetime(2025, 1, 1, 9, 0, tzinfo=tz_ny), "FREQ=DAILY;INTERVAL=3"),
+        (
+            datetime(2025, 1, 1, 10, 0, tzinfo=tz_ny),
+            "FREQ=WEEKLY;INTERVAL=2;BYDAY=TU,TH",
+        ),
+        (
+            datetime(2025, 1, 1, 11, 0, tzinfo=tz_ny),
+            "FREQ=WEEKLY;COUNT=10;BYDAY=MO,WE,FR",
+        ),
+        (datetime(2025, 11, 21, 14, 0, tzinfo=tz_ny), "FREQ=MONTHLY;BYDAY=3FR"),
+        (datetime(2025, 1, 15, 16, 30, tzinfo=tz_ny), "FREQ=MONTHLY;BYMONTHDAY=15"),
+        (datetime(2024, 8, 15, 12, 0, tzinfo=tz_ny), "FREQ=YEARLY"),
+    ]
+
+    window_start = datetime(2026, 8, 1, 0, 0, tzinfo=timezone.utc)
+    window_end = datetime(2026, 10, 1, 0, 0, tzinfo=timezone.utc)
+
+    for dtstart, rule_str in test_cases:
+        stdlib_res = _expand_rrule(dtstart, rule_str, window_start, window_end)
+
+        norm_rule = normalize_for_dateutil(rule_str)
+        du_rule = rrule.rrulestr(norm_rule, dtstart=dtstart)
+        local_tz = dtstart.tzinfo or timezone.utc
+        local_win_start = window_start.astimezone(local_tz)
+        local_win_end = window_end.astimezone(local_tz)
+        du_res = [
+            occ.astimezone(timezone.utc)
+            for occ in du_rule.between(local_win_start, local_win_end, inc=True)
+        ]
+
+        assert stdlib_res == du_res, f"Mismatch for {rule_str}"
 
 
 @pytest.mark.asyncio
@@ -833,16 +1048,16 @@ def test_sanitize_display_text() -> None:
 
 
 def test_lookahead_count_validation() -> None:
-    """Test that lookahead_count is constrained between 2 and 10."""
+    """Test that lookahead_count is constrained between 2 and 20."""
     from pydantic import ValidationError
 
     from app import AppConfig
 
     # Valid values
-    assert AppConfig().lookahead_count == 6
+    assert AppConfig().lookahead_count == 8
     assert AppConfig(lookahead_count=2).lookahead_count == 2
-    assert AppConfig(lookahead_count=6).lookahead_count == 6
-    assert AppConfig(lookahead_count=10).lookahead_count == 10
+    assert AppConfig(lookahead_count=8).lookahead_count == 8
+    assert AppConfig(lookahead_count=20).lookahead_count == 20
 
     # Invalid values below 2
     with pytest.raises(ValidationError):
@@ -850,9 +1065,9 @@ def test_lookahead_count_validation() -> None:
     with pytest.raises(ValidationError):
         AppConfig(lookahead_count=0)
 
-    # Invalid values above 10
+    # Invalid values above 20
     with pytest.raises(ValidationError):
-        AppConfig(lookahead_count=11)
+        AppConfig(lookahead_count=21)
 
 
 def test_app_name_and_config_env_aliases(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1168,3 +1383,97 @@ def test_top_led_halo_states() -> None:
     app.manual_sync_flash_until = now + timedelta(seconds=0.5)
     _, extra = evaluate_display_with_hardware(now, [])
     assert extra["led_notification_color"] == LED_COLOR_SYNC_ACK
+
+
+def test_sound_and_volume_config() -> None:
+    from pydantic import ValidationError
+
+    from app import AppConfig
+
+    # Default configuration: sound=True, volume=None
+    cfg = AppConfig()
+    assert cfg.sound is True
+    assert cfg.volume is None
+
+    # Custom configuration
+    cfg_custom = AppConfig(sound=False, volume=75)
+    assert cfg_custom.sound is False
+    assert cfg_custom.volume == 75
+
+    # Bounds validation for volume (0..100)
+    assert AppConfig(volume=0).volume == 0
+    assert AppConfig(volume=100).volume == 100
+
+    with pytest.raises(ValidationError):
+        AppConfig(volume=-1)
+    with pytest.raises(ValidationError):
+        AppConfig(volume=101)
+
+
+async def test_play_sound_api_dispatch(mock_busy_bar_api: respx.MockRouter) -> None:
+    from app import STOCK_SOUND_EVENT_START, play_sound
+
+    play_route = mock_busy_bar_api.post("http://10.0.4.20/api/audio/play").respond(
+        json={"success": True}
+    )
+    vol_route = mock_busy_bar_api.post("http://10.0.4.20/api/audio/volume").respond(
+        json={"success": True}
+    )
+
+    async with httpx.AsyncClient() as client:
+        # Play sound without explicit volume
+        await play_sound(client, STOCK_SOUND_EVENT_START)
+        assert play_route.called
+        assert not vol_route.called
+        assert (
+            play_route.calls.last.request.headers["content-type"] == "application/json"
+        )
+        body = json.loads(play_route.calls.last.request.content)
+        assert body["stock_path"] == "calendar_event_starts"
+
+        # Play sound with explicit volume setting
+        await play_sound(client, STOCK_SOUND_EVENT_START, volume=80)
+        assert vol_route.called
+        vol_body = json.loads(vol_route.calls.last.request.content)
+        assert vol_body["volume"] == 80
+
+
+def test_alert_triggers_queue_sound_chimes(monkeypatch: pytest.MonkeyPatch) -> None:
+    import app
+    from app import (
+        STOCK_SOUND_EVENT_START,
+        STOCK_SOUND_REMINDER,
+        CalendarEvent,
+        evaluate_display_with_hardware,
+    )
+
+    app._pending_audio_chimes.clear()
+    app.fired_checkpoints.clear()
+    app.active_alert = None
+
+    now = datetime(2026, 8, 16, 9, 45, tzinfo=timezone.utc)
+    evt = CalendarEvent(
+        "audio-evt-1",
+        "Design Review",
+        now + timedelta(minutes=15),
+        now + timedelta(minutes=45),
+    )
+
+    # 1. 15m warning alert -> triggers STOCK_SOUND_REMINDER
+    monkeypatch.setattr(app.get_config(), "sound", True)
+    evaluate_display_with_hardware(now, [evt])
+    assert app._pending_audio_chimes == [STOCK_SOUND_REMINDER]
+    app._pending_audio_chimes.clear()
+
+    # 2. 0m event start -> triggers STOCK_SOUND_EVENT_START
+    now_start = evt.start
+    evaluate_display_with_hardware(now_start, [evt])
+    assert app._pending_audio_chimes == [STOCK_SOUND_EVENT_START]
+    app._pending_audio_chimes.clear()
+
+    # 3. When sound is muted (sound=False), no chimes are queued
+    app.fired_checkpoints.clear()
+    app.active_alert = None
+    monkeypatch.setattr(app.get_config(), "sound", False)
+    evaluate_display_with_hardware(now, [evt])
+    assert app._pending_audio_chimes == []

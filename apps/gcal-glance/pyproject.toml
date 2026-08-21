@@ -19,6 +19,9 @@ dev = [
     "ruff>=0.16.3",
     "mypy>=2.3.1",
     "watchfiles>=0.21.0",
+    "python-dateutil>=2.9.0",
+    "types-python-dateutil>=2.9.0",
+    "prek>=0.4.14",
 ]
 
 [tool.pytest]

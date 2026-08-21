@@ -9,12 +9,13 @@ python app.py --ical-url <URL>       # Google Calendar secret iCal URL
 
 import argparse
 import asyncio
+import calendar
 import json
 import re
 import sys
 from collections.abc import Generator
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, ClassVar, Final, Literal, TypedDict
 
@@ -29,7 +30,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 APP = "gcal-glance"
 GRID_WIDTH = 72
-RADAR_WINDOW_MIN = 180  # 3-Hour rolling action window (1px = 2.5 min)
+RADAR_WINDOW_MIN = 360  # 6-Hour rolling action window (1px = 5 min)
 
 # --- Type Definitions -------------------------------------------------------
 
@@ -168,16 +169,64 @@ class AppConfig(BaseSettings):
         ),
     )
 
-    # Number of upcoming events to cycle in idle marquee & dial peek (2-10, default: 6)
+    # Rolling proximity radar window in minutes (default: 360 = 6h = 5 min/px)
+    radar_window_minutes: int = Field(
+        default=360,
+        ge=60,
+        le=1440,
+        validation_alias=AliasChoices(
+            "GCAL_GLANCE_RADAR_WINDOW_MINUTES",
+            "GCAL_RADAR_WINDOW_MINUTES",
+            "CALSYNC_RADAR_WINDOW_MINUTES",
+            "radar_window_minutes",
+        ),
+    )
+
+    # Include all-day calendar events (default: False)
+    include_all_day: bool = Field(
+        default=False,
+        validation_alias=AliasChoices(
+            "GCAL_GLANCE_INCLUDE_ALL_DAY",
+            "GCAL_INCLUDE_ALL_DAY",
+            "CALSYNC_INCLUDE_ALL_DAY",
+            "include_all_day",
+        ),
+    )
+
+    # Number of upcoming events to cycle in idle marquee & dial peek (2-20, default: 8)
     lookahead_count: int = Field(
-        default=6,
+        default=8,
         ge=2,
-        le=10,
+        le=20,
         validation_alias=AliasChoices(
             "GCAL_GLANCE_LOOKAHEAD_COUNT",
             "GCAL_LOOKAHEAD_COUNT",
             "CALSYNC_LOOKAHEAD_COUNT",
             "lookahead_count",
+        ),
+    )
+
+    # Enable audible alert chimes (default: True)
+    sound: bool = Field(
+        default=True,
+        validation_alias=AliasChoices(
+            "GCAL_GLANCE_SOUND",
+            "GCAL_SOUND",
+            "CALSYNC_SOUND",
+            "sound",
+        ),
+    )
+
+    # Optional speaker volume level 0-100 (default: None to preserve hardware volume)
+    volume: int | None = Field(
+        default=None,
+        ge=0,
+        le=100,
+        validation_alias=AliasChoices(
+            "GCAL_GLANCE_VOLUME",
+            "GCAL_VOLUME",
+            "CALSYNC_VOLUME",
+            "volume",
         ),
     )
 
@@ -352,8 +401,37 @@ def _parse_args() -> argparse.Namespace:
         default=cfg.lookahead_count,
         help=(
             "Number of upcoming events to cycle in idle marquee & dial peek"
-            " (2-10, default: 6)"
+            " (2-20, default: 8)"
         ),
+    )
+    p.add_argument(
+        "--radar-window-minutes",
+        type=int,
+        default=cfg.radar_window_minutes,
+        help=(
+            "Duration of rolling proximity radar window in minutes (60-1440,"
+            " default: 360 = 5 min/px)"
+        ),
+    )
+    p.add_argument(
+        "--include-all-day",
+        action="store_true",
+        default=cfg.include_all_day,
+        help=(
+            "Include all-day calendar events (or set GCAL_GLANCE_INCLUDE_ALL_DAY=true)"
+        ),
+    )
+    p.add_argument(
+        "--sound",
+        action=argparse.BooleanOptionalAction,
+        default=cfg.sound,
+        help="Enable audible alert chimes (default: True, use --no-sound to mute)",
+    )
+    p.add_argument(
+        "--volume",
+        type=int,
+        default=cfg.volume,
+        help="Speaker volume 0-100 (default: keep device volume)",
     )
     args, _ = p.parse_known_args()
     set_config(
@@ -361,6 +439,10 @@ def _parse_args() -> argparse.Namespace:
         ical_url=args.ical_url,
         demo=args.demo,
         lookahead_count=args.lookahead_count,
+        radar_window_minutes=args.radar_window_minutes,
+        include_all_day=args.include_all_day,
+        sound=args.sound,
+        volume=args.volume,
     )
     return args
 
@@ -378,6 +460,37 @@ async def draw(
     if resp.status_code == 400:
         print(f"[draw] Bad payload: {json.dumps(body, indent=2)}", file=sys.stderr)
     resp.raise_for_status()
+
+
+STOCK_SOUND_EVENT_START: Final[str] = "calendar_event_starts"
+STOCK_SOUND_REMINDER: Final[str] = "calendar_reminder_ends"
+_pending_audio_chimes: list[str] = []
+_background_tasks: set[asyncio.Task[Any]] = set()
+
+
+async def play_sound(
+    client: httpx.AsyncClient,
+    stock_path: str,
+    volume: int | None = None,
+) -> None:
+    """Play a stock audio chime on the BUSY Bar speaker."""
+    try:
+        if volume is not None:
+            try:
+                await client.post(
+                    f"{BASE}/api/audio/volume",
+                    json={"volume": volume},
+                    timeout=2.0,
+                )
+            except Exception:
+                pass
+        await client.post(
+            f"{BASE}/api/audio/play",
+            json={"application_name": APP, "stock_path": stock_path},
+            timeout=3.0,
+        )
+    except Exception as e:
+        print(f"[audio] playback error: {e}", file=sys.stderr, flush=True)
 
 
 # --- Data Models ------------------------------------------------------------
@@ -458,28 +571,263 @@ def _unescape_ical(text_val: str) -> str:
     )
 
 
-def _parse_ical_datetime(val: str, params: str = "") -> datetime | None:
-    """Parse an iCal DTSTART/DTEND string into a timezone-aware UTC datetime."""
-    if "VALUE=DATE" in params or len(val.strip()) == 8:
-        return None  # Skip all-day events
+def _parse_ical_datetime(
+    val: str, params: str = "", as_utc: bool = True
+) -> datetime | None:
+    """Parse an iCal DTSTART/DTEND string into a timezone-aware datetime."""
     val = val.strip()
+    is_all_day = "VALUE=DATE" in params or len(val) == 8
+    if is_all_day:
+        if not get_config().include_all_day:
+            return None
+        try:
+            # All-day event YYYYMMDD -> start of day in local timezone (or UTC)
+            dt = datetime.strptime(val, "%Y%m%d")
+            local_dt = dt.astimezone()
+            return local_dt if not as_utc else local_dt.astimezone(timezone.utc)
+        except Exception:
+            return None
     try:
         if val.endswith("Z"):
-            return datetime.strptime(val, "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc)
+            dt = datetime.strptime(val, "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc)
+            return dt if not as_utc else dt.astimezone(timezone.utc)
         if "T" in val:
             dt = datetime.strptime(val, "%Y%m%dT%H%M%S")
             tzid_match = re.search(r"TZID=([^;:]+)", params, re.IGNORECASE)
             if tzid_match and ZoneInfo is not None:
                 tz_name = tzid_match.group(1).strip()
                 try:
-                    return dt.replace(tzinfo=ZoneInfo(tz_name)).astimezone(timezone.utc)
+                    tz_dt = dt.replace(tzinfo=ZoneInfo(tz_name))
+                    return tz_dt if not as_utc else tz_dt.astimezone(timezone.utc)
                 except Exception:
                     pass
             # Fallback to local system timezone -> UTC
-            return dt.astimezone().astimezone(timezone.utc)
+            local_dt = dt.astimezone()
+            return local_dt if not as_utc else local_dt.astimezone(timezone.utc)
     except Exception:
         pass
     return None
+
+
+_DAY_NAMES: Final[dict[str, int]] = {
+    "MO": 0,
+    "TU": 1,
+    "WE": 2,
+    "TH": 3,
+    "FR": 4,
+    "SA": 5,
+    "SU": 6,
+}
+
+
+def _get_nth_weekday_of_month(
+    year: int, month: int, weekday: int, n: int
+) -> date | None:
+    """Find nth weekday of month (e.g. 3rd Friday: n=3; last Friday: n=-1)."""
+    cal = calendar.Calendar(firstweekday=0)
+    month_days = [
+        d
+        for d in cal.itermonthdates(year, month)
+        if d.month == month and d.weekday() == weekday
+    ]
+    if not month_days:
+        return None
+    if n > 0 and n <= len(month_days):
+        return month_days[n - 1]
+    elif n < 0 and abs(n) <= len(month_days):
+        return month_days[n]
+    return None
+
+
+def _parse_byday(byday_str: str) -> list[tuple[int | None, int]]:
+    """Parse BYDAY string (e.g. '3FR', 'MO,TU,WE') into (pos, weekday_int) list."""
+    results: list[tuple[int | None, int]] = []
+    for item in byday_str.split(","):
+        item = item.strip().upper()
+        m = re.match(r"^([+-]?\d+)?(MO|TU|WE|TH|FR|SA|SU)$", item)
+        if m:
+            pos = int(m.group(1)) if m.group(1) else None
+            wd = _DAY_NAMES[m.group(2)]
+            results.append((pos, wd))
+    return results
+
+
+def _expand_rrule(
+    dtstart: datetime,
+    rrule_str: str,
+    window_start: datetime,
+    window_end: datetime,
+    max_occurrences: int = 100,
+) -> list[datetime]:
+    """Pure stdlib RFC 5545 recurrence expansion preserving timezone across DST."""
+    props: dict[str, str] = {}
+    for part in rrule_str.split(";"):
+        if "=" in part:
+            k, v = part.split("=", 1)
+            props[k.strip().upper()] = v.strip()
+
+    freq = props.get("FREQ", "DAILY").upper()
+    interval = max(1, int(props.get("INTERVAL", "1")))
+    count = int(props["COUNT"]) if "COUNT" in props else None
+
+    until_dt: datetime | None = None
+    if "UNTIL" in props:
+        u_val = props["UNTIL"]
+        if len(u_val) == 8:
+            u_y, u_m, u_d = int(u_val[:4]), int(u_val[4:6]), int(u_val[6:8])
+            until_dt = datetime(u_y, u_m, u_d, 23, 59, 59, tzinfo=timezone.utc)
+        elif "T" in u_val:
+            u_clean = u_val.rstrip("Z")
+            u_y, u_m, u_d = int(u_clean[:4]), int(u_clean[4:6]), int(u_clean[6:8])
+            hh, mm = int(u_clean[9:11]), int(u_clean[11:13])
+            ss = int(u_clean[13:15]) if len(u_clean) >= 15 else 0
+            until_dt = datetime(u_y, u_m, u_d, hh, mm, ss, tzinfo=timezone.utc)
+
+    byday = _parse_byday(props["BYDAY"]) if "BYDAY" in props else []
+    bymonthday = (
+        [int(x) for x in props["BYMONTHDAY"].split(",") if x.isdigit()]
+        if "BYMONTHDAY" in props
+        else []
+    )
+
+    tz = dtstart.tzinfo or timezone.utc
+    start_date = dtstart.date()
+    results: list[datetime] = []
+    seen_count = 0
+
+    def check_and_add(cand_date: date) -> bool:
+        nonlocal seen_count
+        if cand_date < start_date:
+            return True
+        try:
+            cand_dt = datetime.combine(cand_date, dtstart.time(), tzinfo=tz)
+        except Exception:
+            return True
+        cand_utc = cand_dt.astimezone(timezone.utc)
+        if until_dt is not None and cand_utc > until_dt:
+            return False
+        seen_count += 1
+        if count is not None and seen_count > count:
+            return False
+        if cand_utc >= window_start:
+            if cand_utc <= window_end:
+                results.append(cand_utc)
+            elif cand_utc > window_end:
+                return False
+        return len(results) < max_occurrences
+
+    if freq == "DAILY":
+        curr = start_date
+        win_start_local = window_start.astimezone(tz).date()
+        if count is None and curr < win_start_local:
+            days_behind = (win_start_local - curr).days
+            steps = days_behind // interval
+            curr += timedelta(days=steps * interval)
+        while curr <= window_end.astimezone(tz).date() + timedelta(days=1):
+            if not check_and_add(curr):
+                break
+            curr += timedelta(days=interval)
+
+    elif freq == "WEEKLY":
+        curr_week_start = start_date - timedelta(days=start_date.weekday())
+        win_start_local = window_start.astimezone(tz).date()
+        if count is None and curr_week_start < win_start_local - timedelta(days=7):
+            weeks_behind = (win_start_local - curr_week_start).days // 7
+            steps = weeks_behind // interval
+            curr_week_start += timedelta(weeks=steps * interval)
+
+        target_days = [wd for (_, wd) in byday] if byday else [dtstart.weekday()]
+        target_days.sort()
+        stop = False
+        while not stop:
+            for wd in target_days:
+                cand_date = curr_week_start + timedelta(days=wd)
+                if cand_date < start_date:
+                    continue
+                if not check_and_add(cand_date):
+                    stop = True
+                    break
+            curr_week_start += timedelta(weeks=interval)
+            if curr_week_start > window_end.astimezone(tz).date() + timedelta(days=7):
+                break
+
+    elif freq == "MONTHLY":
+        curr_year = start_date.year
+        curr_month = start_date.month
+        win_start_local = window_start.astimezone(tz).date()
+        if count is None:
+            months_diff = (win_start_local.year - curr_year) * 12 + (
+                win_start_local.month - curr_month
+            )
+            if months_diff > 1:
+                steps = months_diff // interval
+                total_months = (curr_year * 12 + curr_month - 1) + steps * interval
+                curr_year = total_months // 12
+                curr_month = (total_months % 12) + 1
+
+        stop = False
+        while not stop:
+            if byday:
+                for pos, wd in byday:
+                    if pos is not None:
+                        d_pos = _get_nth_weekday_of_month(
+                            curr_year, curr_month, wd, pos
+                        )
+                        if d_pos and not check_and_add(d_pos):
+                            stop = True
+                            break
+                    else:
+                        cal = calendar.Calendar(firstweekday=0)
+                        for d_day in cal.itermonthdates(curr_year, curr_month):
+                            if d_day.month == curr_month and d_day.weekday() == wd:
+                                if not check_and_add(d_day):
+                                    stop = True
+                                    break
+            elif bymonthday:
+                for bmd in bymonthday:
+                    try:
+                        d_bmd = date(curr_year, curr_month, bmd)
+                        if not check_and_add(d_bmd):
+                            stop = True
+                            break
+                    except ValueError:
+                        pass
+            else:
+                try:
+                    d_simple = date(curr_year, curr_month, start_date.day)
+                    if not check_and_add(d_simple):
+                        stop = True
+                        break
+                except ValueError:
+                    pass
+            total_m = (curr_year * 12 + curr_month - 1) + interval
+            curr_year = total_m // 12
+            curr_month = (total_m % 12) + 1
+            if date(curr_year, curr_month, 1) > window_end.astimezone(
+                tz
+            ).date() + timedelta(days=32):
+                break
+
+    elif freq == "YEARLY":
+        curr_year = start_date.year
+        win_start_local = window_start.astimezone(tz).date()
+        if count is None and curr_year < win_start_local.year - 1:
+            years_diff = win_start_local.year - curr_year
+            steps = years_diff // interval
+            curr_year += steps * interval
+        while True:
+            try:
+                d_yr = date(curr_year, start_date.month, start_date.day)
+                if not check_and_add(d_yr):
+                    break
+            except ValueError:
+                pass
+            curr_year += interval
+            if curr_year > window_end.astimezone(tz).date().year + 1:
+                break
+
+    results.sort()
+    return results
 
 
 async def fetch_events(
@@ -504,44 +852,136 @@ async def fetch_events(
 
     try:
         lines = _unfold_ical(content)
-        events: list[CalendarEvent] = []
+        raw_events: list[dict[str, Any]] = []
         in_vevent = False
-        event_data: dict[str, str] = {}
+        event_data: dict[str, Any] = {}
         now = datetime.now(timezone.utc)
+        window_end = now + timedelta(days=60)
 
         for line in lines:
             line_str = line.strip()
             if line_str == "BEGIN:VEVENT":
                 in_vevent = True
-                event_data = {}
+                event_data = {"EXDATES": []}
             elif line_str == "END:VEVENT":
                 if in_vevent:
                     in_vevent = False
-                    uid = event_data.get("UID", "")
-                    summary = _unescape_ical(event_data.get("SUMMARY", "(No title)"))
-                    description = _unescape_ical(event_data.get("DESCRIPTION", ""))
-                    location = _unescape_ical(event_data.get("LOCATION", ""))
-                    color = event_data.get("COLOR", "") or event_data.get(
-                        "X-APPLE-CALENDAR-COLOR", ""
-                    )
+                    raw_events.append(dict(event_data))
+            elif in_vevent:
+                if ":" in line:
+                    key_part, val = line.split(":", 1)
+                    if ";" in key_part:
+                        key, params = key_part.split(";", 1)
+                    else:
+                        key, params = key_part, ""
+                    key_upper = key.upper()
+                    if key_upper == "EXDATE":
+                        event_data.setdefault("EXDATES", []).append((val, params))
+                    elif key_upper == "RECURRENCE-ID":
+                        event_data["RECURRENCE_ID_VAL"] = val
+                        event_data["RECURRENCE_ID_PARAMS"] = params
+                    elif key_upper in (
+                        "UID",
+                        "SUMMARY",
+                        "DESCRIPTION",
+                        "LOCATION",
+                        "COLOR",
+                        "X-APPLE-CALENDAR-COLOR",
+                        "RRULE",
+                        "STATUS",
+                    ):
+                        event_data[key_upper] = val
+                    elif key_upper == "DTSTART":
+                        event_data["DTSTART_VAL"] = val
+                        event_data["DTSTART_PARAMS"] = params
+                    elif key_upper == "DTEND":
+                        event_data["DTEND_VAL"] = val
+                        event_data["DTEND_PARAMS"] = params
 
-                    dtstart_val = event_data.get("DTSTART_VAL", "")
-                    dtstart_params = event_data.get("DTSTART_PARAMS", "")
-                    dtend_val = event_data.get("DTEND_VAL", "")
-                    dtend_params = event_data.get("DTEND_PARAMS", "")
+        # 1. Collect overridden recurrence instances to suppress base RRULE occurrences
+        overridden_recs: set[tuple[str, datetime]] = set()
+        for ed in raw_events:
+            uid = ed.get("UID", "")
+            rec_val = ed.get("RECURRENCE_ID_VAL")
+            rec_params = ed.get("RECURRENCE_ID_PARAMS", "")
+            if rec_val and uid:
+                rec_dt = _parse_ical_datetime(rec_val, rec_params, as_utc=True)
+                if rec_dt is not None:
+                    overridden_recs.add((uid, rec_dt))
 
-                    start_dt = _parse_ical_datetime(dtstart_val, dtstart_params)
-                    end_dt = (
-                        _parse_ical_datetime(dtend_val, dtend_params)
-                        if dtend_val
-                        else None
-                    )
+        events: list[CalendarEvent] = []
+        for ed in raw_events:
+            uid = ed.get("UID", "")
+            status = ed.get("STATUS", "").upper()
+            if status == "CANCELLED":
+                continue
 
-                    if start_dt is None:
-                        continue
-                    if end_dt is None:
-                        end_dt = start_dt + timedelta(hours=1)
+            summary = _unescape_ical(ed.get("SUMMARY", "(No title)"))
+            description = _unescape_ical(ed.get("DESCRIPTION", ""))
+            location = _unescape_ical(ed.get("LOCATION", ""))
+            color = ed.get("COLOR", "") or ed.get("X-APPLE-CALENDAR-COLOR", "")
 
+            dtstart_val = ed.get("DTSTART_VAL", "")
+            dtstart_params = ed.get("DTSTART_PARAMS", "")
+            dtend_val = ed.get("DTEND_VAL", "")
+            dtend_params = ed.get("DTEND_PARAMS", "")
+
+            start_dt_raw = _parse_ical_datetime(
+                dtstart_val, dtstart_params, as_utc=False
+            )
+            if start_dt_raw is None:
+                continue
+            end_dt_raw = (
+                _parse_ical_datetime(dtend_val, dtend_params, as_utc=False)
+                if dtend_val
+                else None
+            )
+            is_all_day_evt = (
+                "VALUE=DATE" in dtstart_params or len(dtstart_val.strip()) == 8
+            )
+            if end_dt_raw is None:
+                end_dt_raw = start_dt_raw + (
+                    timedelta(days=1) if is_all_day_evt else timedelta(hours=1)
+                )
+            duration = max(timedelta(seconds=0), end_dt_raw - start_dt_raw)
+
+            start_dt = start_dt_raw.astimezone(timezone.utc)
+            end_dt = end_dt_raw.astimezone(timezone.utc)
+
+            rrule_str = ed.get("RRULE")
+            if rrule_str:
+                exdates: set[datetime] = set()
+                for ex_val, ex_params in ed.get("EXDATES", []):
+                    for part in ex_val.split(","):
+                        ex_dt = _parse_ical_datetime(
+                            part.strip(), ex_params, as_utc=True
+                        )
+                        if ex_dt is not None:
+                            exdates.add(ex_dt)
+
+                try:
+                    for occ_start in _expand_rrule(
+                        start_dt_raw,
+                        rrule_str,
+                        now - timedelta(hours=1),
+                        window_end,
+                    ):
+                        if occ_start in exdates or (uid, occ_start) in overridden_recs:
+                            continue
+                        occ_end = occ_start + duration
+                        if occ_end > now:
+                            events.append(
+                                CalendarEvent(
+                                    uid=f"{uid}_{occ_start.isoformat()}",
+                                    summary=summary,
+                                    start=occ_start,
+                                    end=occ_end,
+                                    color=color,
+                                    description=description,
+                                    location=location,
+                                )
+                            )
+                except Exception:
                     if end_dt > now:
                         events.append(
                             CalendarEvent(
@@ -554,29 +994,19 @@ async def fetch_events(
                                 location=location,
                             )
                         )
-            elif in_vevent:
-                if ":" in line:
-                    key_part, val = line.split(":", 1)
-                    if ";" in key_part:
-                        key, params = key_part.split(";", 1)
-                    else:
-                        key, params = key_part, ""
-                    key_upper = key.upper()
-                    if key_upper in (
-                        "UID",
-                        "SUMMARY",
-                        "DESCRIPTION",
-                        "LOCATION",
-                        "COLOR",
-                        "X-APPLE-CALENDAR-COLOR",
-                    ):
-                        event_data[key_upper] = val
-                    elif key_upper == "DTSTART":
-                        event_data["DTSTART_VAL"] = val
-                        event_data["DTSTART_PARAMS"] = params
-                    elif key_upper == "DTEND":
-                        event_data["DTEND_VAL"] = val
-                        event_data["DTEND_PARAMS"] = params
+            else:
+                if end_dt > now:
+                    events.append(
+                        CalendarEvent(
+                            uid=uid,
+                            summary=summary,
+                            start=start_dt,
+                            end=end_dt,
+                            color=color,
+                            description=description,
+                            location=location,
+                        )
+                    )
 
         events.sort(key=lambda e: e.start)
         return events
@@ -1246,14 +1676,15 @@ def render_aero_idle(
         ]
     )
 
-    # Render upcoming meeting blocks in the 3h rolling runway window
+    # Render upcoming meeting blocks in the rolling runway window
+    radar_win_min = get_config().radar_window_minutes
     for i in range(3):
         blk_id = f"radar_blk_{i}"
         if i < len(upcoming_events):
             evt = upcoming_events[i]
             offset_start_sec = (evt.start - now).total_seconds()
             offset_end_sec = (evt.end - now).total_seconds()
-            window_sec = RADAR_WINDOW_MIN * 60.0
+            window_sec = radar_win_min * 60.0
 
             if 0 <= offset_start_sec < window_sec:
                 x_start = min(
@@ -1964,6 +2395,17 @@ def evaluate_display_with_hardware(
                 current_event = evt
                 break
 
+    if (
+        current_event
+        and current_event.start <= now < current_event.end
+        and (current_event.uid, 0) not in fired_checkpoints
+    ):
+        fired_checkpoints.add((current_event.uid, 0))
+        if (
+            now - current_event.start
+        ).total_seconds() < cfg.alert_banner_duration_seconds and cfg.sound:
+            _pending_audio_chimes.append(STOCK_SOUND_EVENT_START)
+
     upcoming_events = [e for e in events if e.start > now and e != current_event]
     upcoming_events.sort(key=lambda e: e.start)
 
@@ -2002,6 +2444,13 @@ def evaluate_display_with_hardware(
                     expires_at=now
                     + timedelta(seconds=cfg.alert_banner_duration_seconds),
                 )
+                if cfg.sound:
+                    chime = (
+                        STOCK_SOUND_EVENT_START
+                        if target_cp == 0
+                        else STOCK_SOUND_REMINDER
+                    )
+                    _pending_audio_chimes.append(chime)
                 break
         break
 
@@ -2202,49 +2651,59 @@ class InputListener:
         """Connect to WebSocket and stream input events with reconnection backoff."""
         # Try busylib AsyncBusyBar first if available
         try:
-            from busylib import AsyncBusyBar
+            from busylib import AsyncBusyBar  # type: ignore[import-untyped]
 
-            kwargs: dict[str, Any] = {"token": self.token} if self.token else {}
-            bb = AsyncBusyBar(self.host, **kwargs)
-            try:
-                async for msg in bb.stream_status_ws():
-                    if self._stop.is_set():
-                        break
-                    if not isinstance(msg, dict):
-                        continue
-                    for upd in msg.get("updates", []):
-                        inp = upd.get("input")
-                        if not inp:
-                            continue
-                        if "button_event" in inp:
-                            be = inp["button_event"]
-                            btn_name = str(be.get("button", "OK")).upper()
-                            btn_id = (
-                                BTN_START
-                                if btn_name == "START"
-                                else BTN_BACK
-                                if btn_name == "BACK"
-                                else BTN_OK
-                            )
-                            action_name = str(be.get("action", "PRESS")).upper()
-                            action_id = (
-                                ACTION_RELEASE
-                                if action_name == "RELEASE"
-                                else ACTION_PRESS
-                            )
-                            self.queue.put_nowait(("button", (btn_id, action_id)))
-                        if "encoder_event" in inp:
-                            delta = int(inp["encoder_event"].get("delta", 0))
-                            if delta != 0:
-                                self.queue.put_nowait(("encoder", delta))
-                return
-            except Exception:
-                pass
-            finally:
+            backoff = 1.0
+            while not self._stop.is_set():
+                kwargs: dict[str, Any] = {"token": self.token} if self.token else {}
+                bb = AsyncBusyBar(self.host, **kwargs)
                 try:
-                    await bb.aclose()
+                    async for msg in bb.stream_status_ws():
+                        if self._stop.is_set():
+                            break
+                        backoff = 1.0
+                        if not isinstance(msg, dict):
+                            continue
+                        for upd in msg.get("updates", []):
+                            inp = upd.get("input")
+                            if not inp:
+                                continue
+                            if "button_event" in inp:
+                                be = inp["button_event"]
+                                btn_name = str(be.get("button", "OK")).upper()
+                                btn_id = (
+                                    BTN_START
+                                    if btn_name == "START"
+                                    else BTN_BACK
+                                    if btn_name == "BACK"
+                                    else BTN_OK
+                                )
+                                action_name = str(be.get("action", "PRESS")).upper()
+                                action_id = (
+                                    ACTION_RELEASE
+                                    if action_name == "RELEASE"
+                                    else ACTION_PRESS
+                                )
+                                self.queue.put_nowait(("button", (btn_id, action_id)))
+                            if "encoder_event" in inp:
+                                delta = int(inp["encoder_event"].get("delta", 0))
+                                if delta != 0:
+                                    self.queue.put_nowait(("encoder", delta))
+                except asyncio.CancelledError:
+                    break
                 except Exception:
                     pass
+                finally:
+                    try:
+                        await bb.aclose()
+                    except Exception:
+                        pass
+
+                if self._stop.is_set():
+                    break
+                await asyncio.sleep(backoff)
+                backoff = min(10.0, backoff * 1.5)
+            return
         except ImportError:
             pass
 
@@ -2273,11 +2732,9 @@ class InputListener:
         while not self._stop.is_set():
             try:
                 async with websockets.connect(
-                    url, open_timeout=5, ping_interval=20
+                    url, open_timeout=5, ping_interval=None, ping_timeout=None
                 ) as ws:
-                    await ws.send(json.dumps({"enable": True}))
                     backoff = 1.0
-                    print(f"[input] connected to {url}", flush=True)
                     async for msg in ws:
                         if self._stop.is_set():
                             break
@@ -2345,6 +2802,15 @@ async def _display_loop(
                 apply_hardware_input(now, evt_type, val, events)
 
         elements, extra = evaluate_display_with_hardware(now, events)
+
+        # Dispatch any pending alert chimes asynchronously
+        if _pending_audio_chimes:
+            cfg = get_config()
+            while _pending_audio_chimes:
+                chime = _pending_audio_chimes.pop(0)
+                task = asyncio.create_task(play_sound(client, chime, volume=cfg.volume))
+                _background_tasks.add(task)
+                task.add_done_callback(_background_tasks.discard)
 
         import json
 
