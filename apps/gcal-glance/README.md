@@ -80,6 +80,19 @@ stateDiagram-v2
 
 ---
 
+## 🎮 Hardware Controls & Tactile Navigation
+
+GCal Glance integrates directly with the BUSY Bar's physical rotary encoder dial and push buttons for responsive, tactile desktop interaction:
+
+| Input Control | Hardware Action | Operational Behavior |
+| :--- | :---: | :--- |
+| **Rotary Dial (Encoder)** | **Rotate Left / Right** | **Interactive Agenda Peek**: Scrubs through upcoming calendar events one-by-one (`1/N`, `2/N`, `TMRW 3/N`, etc.) across the lookahead queue. Displays exact start time, duration, room/video link, and location in real-time. Automatically dismisses back to the live flight deck after 8 seconds of inactivity. |
+| **`OK` Button** | **Press** | **Instant Manual Sync**: Triggers an immediate re-fetch and re-parse of your Google Calendar feed, bypassing the normal 120-second polling interval. A bright blue LED confirmation pulse acknowledges the sync request. |
+| **`BACK` Button** | **Press** | **Exit & Dismiss**: Immediately exits Agenda Peek view back to the active flight deck, or dismisses an active approaching alert banner early. |
+| **`START` Button** | **Press** | **Dismiss Alert**: Clears an active milestone alert banner early to return directly to the standard runway or active meeting view. |
+
+---
+
 ## ⚙️ Configuration & Options
 
 All configuration options can be set via command-line arguments or `.env` environment variables (prefixed with `GCAL_GLANCE_`, with `GCAL_` and `CALSYNC_` supported as fallbacks):
