@@ -1054,9 +1054,9 @@ def test_lookahead_count_validation() -> None:
     from app import AppConfig
 
     # Valid values
-    assert AppConfig().lookahead_count == 10
+    assert AppConfig().lookahead_count == 8
     assert AppConfig(lookahead_count=2).lookahead_count == 2
-    assert AppConfig(lookahead_count=10).lookahead_count == 10
+    assert AppConfig(lookahead_count=8).lookahead_count == 8
     assert AppConfig(lookahead_count=20).lookahead_count == 20
 
     # Invalid values below 2

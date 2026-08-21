@@ -193,9 +193,9 @@ class AppConfig(BaseSettings):
         ),
     )
 
-    # Number of upcoming events to cycle in idle marquee & dial peek (2-20, default: 10)
+    # Number of upcoming events to cycle in idle marquee & dial peek (2-20, default: 8)
     lookahead_count: int = Field(
-        default=10,
+        default=8,
         ge=2,
         le=20,
         validation_alias=AliasChoices(
@@ -377,7 +377,7 @@ def _parse_args() -> argparse.Namespace:
         default=cfg.lookahead_count,
         help=(
             "Number of upcoming events to cycle in idle marquee & dial peek"
-            " (2-20, default: 10)"
+            " (2-20, default: 8)"
         ),
     )
     p.add_argument(
