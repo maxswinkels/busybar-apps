@@ -9,12 +9,13 @@ python app.py --ical-url <URL>       # Google Calendar secret iCal URL
 
 import argparse
 import asyncio
+import calendar
 import json
 import re
 import sys
 from collections.abc import Generator
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, ClassVar, Final, Literal, TypedDict
 
@@ -24,7 +25,6 @@ except ImportError:
     ZoneInfo = None  # type: ignore
 
 import httpx
-from dateutil import rrule
 from pydantic import AliasChoices, AnyHttpUrl, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -488,11 +488,225 @@ def _parse_ical_datetime(
     return None
 
 
-def _normalize_rrule_str(rrule_str: str) -> str:
-    """Normalize iCal RRULE strings (e.g. date-only UNTIL) for dateutil.rrule."""
-    rrule_str = re.sub(r"UNTIL=(\d{8})(?!T)", r"UNTIL=\1T235959Z", rrule_str)
-    rrule_str = re.sub(r"UNTIL=(\d{8}T\d{6})(?!Z)", r"UNTIL=\1Z", rrule_str)
-    return rrule_str
+_DAY_NAMES: Final[dict[str, int]] = {
+    "MO": 0,
+    "TU": 1,
+    "WE": 2,
+    "TH": 3,
+    "FR": 4,
+    "SA": 5,
+    "SU": 6,
+}
+
+
+def _get_nth_weekday_of_month(
+    year: int, month: int, weekday: int, n: int
+) -> date | None:
+    """Find nth weekday of month (e.g. 3rd Friday: n=3; last Friday: n=-1)."""
+    cal = calendar.Calendar(firstweekday=0)
+    month_days = [
+        d
+        for d in cal.itermonthdates(year, month)
+        if d.month == month and d.weekday() == weekday
+    ]
+    if not month_days:
+        return None
+    if n > 0 and n <= len(month_days):
+        return month_days[n - 1]
+    elif n < 0 and abs(n) <= len(month_days):
+        return month_days[n]
+    return None
+
+
+def _parse_byday(byday_str: str) -> list[tuple[int | None, int]]:
+    """Parse BYDAY string (e.g. '3FR', 'MO,TU,WE') into (pos, weekday_int) list."""
+    results: list[tuple[int | None, int]] = []
+    for item in byday_str.split(","):
+        item = item.strip().upper()
+        m = re.match(r"^([+-]?\d+)?(MO|TU|WE|TH|FR|SA|SU)$", item)
+        if m:
+            pos = int(m.group(1)) if m.group(1) else None
+            wd = _DAY_NAMES[m.group(2)]
+            results.append((pos, wd))
+    return results
+
+
+def _expand_rrule(
+    dtstart: datetime,
+    rrule_str: str,
+    window_start: datetime,
+    window_end: datetime,
+    max_occurrences: int = 100,
+) -> list[datetime]:
+    """Pure stdlib RFC 5545 recurrence expansion preserving timezone across DST."""
+    props: dict[str, str] = {}
+    for part in rrule_str.split(";"):
+        if "=" in part:
+            k, v = part.split("=", 1)
+            props[k.strip().upper()] = v.strip()
+
+    freq = props.get("FREQ", "DAILY").upper()
+    interval = max(1, int(props.get("INTERVAL", "1")))
+    count = int(props["COUNT"]) if "COUNT" in props else None
+
+    until_dt: datetime | None = None
+    if "UNTIL" in props:
+        u_val = props["UNTIL"]
+        if len(u_val) == 8:
+            u_y, u_m, u_d = int(u_val[:4]), int(u_val[4:6]), int(u_val[6:8])
+            until_dt = datetime(u_y, u_m, u_d, 23, 59, 59, tzinfo=timezone.utc)
+        elif "T" in u_val:
+            u_clean = u_val.rstrip("Z")
+            u_y, u_m, u_d = int(u_clean[:4]), int(u_clean[4:6]), int(u_clean[6:8])
+            hh, mm = int(u_clean[9:11]), int(u_clean[11:13])
+            ss = int(u_clean[13:15]) if len(u_clean) >= 15 else 0
+            until_dt = datetime(u_y, u_m, u_d, hh, mm, ss, tzinfo=timezone.utc)
+
+    byday = _parse_byday(props["BYDAY"]) if "BYDAY" in props else []
+    bymonthday = (
+        [int(x) for x in props["BYMONTHDAY"].split(",") if x.isdigit()]
+        if "BYMONTHDAY" in props
+        else []
+    )
+
+    tz = dtstart.tzinfo or timezone.utc
+    start_date = dtstart.date()
+    results: list[datetime] = []
+    seen_count = 0
+
+    def check_and_add(cand_date: date) -> bool:
+        nonlocal seen_count
+        if cand_date < start_date:
+            return True
+        try:
+            cand_dt = datetime.combine(cand_date, dtstart.time(), tzinfo=tz)
+        except Exception:
+            return True
+        cand_utc = cand_dt.astimezone(timezone.utc)
+        if until_dt is not None and cand_utc > until_dt:
+            return False
+        seen_count += 1
+        if count is not None and seen_count > count:
+            return False
+        if cand_utc >= window_start:
+            if cand_utc <= window_end:
+                results.append(cand_utc)
+            elif cand_utc > window_end:
+                return False
+        return len(results) < max_occurrences
+
+    if freq == "DAILY":
+        curr = start_date
+        win_start_local = window_start.astimezone(tz).date()
+        if count is None and curr < win_start_local:
+            days_behind = (win_start_local - curr).days
+            steps = days_behind // interval
+            curr += timedelta(days=steps * interval)
+        while curr <= window_end.astimezone(tz).date() + timedelta(days=1):
+            if not check_and_add(curr):
+                break
+            curr += timedelta(days=interval)
+
+    elif freq == "WEEKLY":
+        curr_week_start = start_date - timedelta(days=start_date.weekday())
+        win_start_local = window_start.astimezone(tz).date()
+        if count is None and curr_week_start < win_start_local - timedelta(days=7):
+            weeks_behind = (win_start_local - curr_week_start).days // 7
+            steps = weeks_behind // interval
+            curr_week_start += timedelta(weeks=steps * interval)
+
+        target_days = [wd for (_, wd) in byday] if byday else [dtstart.weekday()]
+        target_days.sort()
+        stop = False
+        while not stop:
+            for wd in target_days:
+                cand_date = curr_week_start + timedelta(days=wd)
+                if cand_date < start_date:
+                    continue
+                if not check_and_add(cand_date):
+                    stop = True
+                    break
+            curr_week_start += timedelta(weeks=interval)
+            if curr_week_start > window_end.astimezone(tz).date() + timedelta(days=7):
+                break
+
+    elif freq == "MONTHLY":
+        curr_year = start_date.year
+        curr_month = start_date.month
+        win_start_local = window_start.astimezone(tz).date()
+        if count is None:
+            months_diff = (win_start_local.year - curr_year) * 12 + (
+                win_start_local.month - curr_month
+            )
+            if months_diff > 1:
+                steps = months_diff // interval
+                total_months = (curr_year * 12 + curr_month - 1) + steps * interval
+                curr_year = total_months // 12
+                curr_month = (total_months % 12) + 1
+
+        stop = False
+        while not stop:
+            if byday:
+                for pos, wd in byday:
+                    if pos is not None:
+                        d_pos = _get_nth_weekday_of_month(
+                            curr_year, curr_month, wd, pos
+                        )
+                        if d_pos and not check_and_add(d_pos):
+                            stop = True
+                            break
+                    else:
+                        cal = calendar.Calendar(firstweekday=0)
+                        for d_day in cal.itermonthdates(curr_year, curr_month):
+                            if d_day.month == curr_month and d_day.weekday() == wd:
+                                if not check_and_add(d_day):
+                                    stop = True
+                                    break
+            elif bymonthday:
+                for bmd in bymonthday:
+                    try:
+                        d_bmd = date(curr_year, curr_month, bmd)
+                        if not check_and_add(d_bmd):
+                            stop = True
+                            break
+                    except ValueError:
+                        pass
+            else:
+                try:
+                    d_simple = date(curr_year, curr_month, start_date.day)
+                    if not check_and_add(d_simple):
+                        stop = True
+                        break
+                except ValueError:
+                    pass
+            total_m = (curr_year * 12 + curr_month - 1) + interval
+            curr_year = total_m // 12
+            curr_month = (total_m % 12) + 1
+            if date(curr_year, curr_month, 1) > window_end.astimezone(
+                tz
+            ).date() + timedelta(days=32):
+                break
+
+    elif freq == "YEARLY":
+        curr_year = start_date.year
+        win_start_local = window_start.astimezone(tz).date()
+        if count is None and curr_year < win_start_local.year - 1:
+            years_diff = win_start_local.year - curr_year
+            steps = years_diff // interval
+            curr_year += steps * interval
+        while True:
+            try:
+                d_yr = date(curr_year, start_date.month, start_date.day)
+                if not check_and_add(d_yr):
+                    break
+            except ValueError:
+                pass
+            curr_year += interval
+            if curr_year > window_end.astimezone(tz).date().year + 1:
+                break
+
+    results.sort()
+    return results
 
 
 async def fetch_events(
@@ -620,16 +834,12 @@ async def fetch_events(
                             exdates.add(ex_dt)
 
                 try:
-                    norm_rrule = _normalize_rrule_str(rrule_str)
-                    rule = rrule.rrulestr(norm_rrule, dtstart=start_dt_raw)
-                    local_tz = start_dt_raw.tzinfo or timezone.utc
-                    local_now = now.astimezone(local_tz)
-                    local_window_end = window_end.astimezone(local_tz)
-
-                    for occ_local in rule.between(
-                        local_now - timedelta(hours=1), local_window_end, inc=True
+                    for occ_start in _expand_rrule(
+                        start_dt_raw,
+                        rrule_str,
+                        now - timedelta(hours=1),
+                        window_end,
                     ):
-                        occ_start = occ_local.astimezone(timezone.utc)
                         if occ_start in exdates or (uid, occ_start) in overridden_recs:
                             continue
                         occ_end = occ_start + duration
