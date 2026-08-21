@@ -182,6 +182,17 @@ class AppConfig(BaseSettings):
         ),
     )
 
+    # Ignore all-day calendar events (default: False)
+    ignore_all_day: bool = Field(
+        default=False,
+        validation_alias=AliasChoices(
+            "GCAL_GLANCE_IGNORE_ALL_DAY",
+            "GCAL_IGNORE_ALL_DAY",
+            "CALSYNC_IGNORE_ALL_DAY",
+            "ignore_all_day",
+        ),
+    )
+
     # Number of upcoming events to cycle in idle marquee & dial peek (2-10, default: 6)
     lookahead_count: int = Field(
         default=6,
@@ -378,6 +389,12 @@ def _parse_args() -> argparse.Namespace:
             " default: 360 = 5 min/px)"
         ),
     )
+    p.add_argument(
+        "--ignore-all-day",
+        action="store_true",
+        default=cfg.ignore_all_day,
+        help="Ignore all-day calendar events (or set GCAL_GLANCE_IGNORE_ALL_DAY=true)",
+    )
     args, _ = p.parse_known_args()
     set_config(
         host=args.host,
@@ -385,6 +402,7 @@ def _parse_args() -> argparse.Namespace:
         demo=args.demo,
         lookahead_count=args.lookahead_count,
         radar_window_minutes=args.radar_window_minutes,
+        ignore_all_day=args.ignore_all_day,
     )
     return args
 
@@ -486,9 +504,18 @@ def _parse_ical_datetime(
     val: str, params: str = "", as_utc: bool = True
 ) -> datetime | None:
     """Parse an iCal DTSTART/DTEND string into a timezone-aware datetime."""
-    if "VALUE=DATE" in params or len(val.strip()) == 8:
-        return None  # Skip all-day events
     val = val.strip()
+    is_all_day = "VALUE=DATE" in params or len(val) == 8
+    if is_all_day:
+        if get_config().ignore_all_day:
+            return None
+        try:
+            # All-day event YYYYMMDD -> start of day in local timezone (or UTC)
+            dt = datetime.strptime(val, "%Y%m%d")
+            local_dt = dt.astimezone()
+            return local_dt if not as_utc else local_dt.astimezone(timezone.utc)
+        except Exception:
+            return None
     try:
         if val.endswith("Z"):
             dt = datetime.strptime(val, "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc)
@@ -838,8 +865,13 @@ async def fetch_events(
                 if dtend_val
                 else None
             )
+            is_all_day_evt = (
+                "VALUE=DATE" in dtstart_params or len(dtstart_val.strip()) == 8
+            )
             if end_dt_raw is None:
-                end_dt_raw = start_dt_raw + timedelta(hours=1)
+                end_dt_raw = start_dt_raw + (
+                    timedelta(days=1) if is_all_day_evt else timedelta(hours=1)
+                )
             duration = max(timedelta(seconds=0), end_dt_raw - start_dt_raw)
 
             start_dt = start_dt_raw.astimezone(timezone.utc)

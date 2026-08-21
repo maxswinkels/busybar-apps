@@ -100,6 +100,7 @@ All configuration options can be set via command-line arguments or `.env` enviro
 | Setting | CLI Flag | Env Variable | Default | Description |
 | :--- | :--- | :--- | :---: | :--- |
 | **Radar Window** | `--radar-window-minutes` | `GCAL_GLANCE_RADAR_WINDOW_MINUTES` | `360` | Duration of idle rolling radar window in minutes (60–1440). `360` = 6h window ($5\text{ min/px}$). |
+| **Ignore All-Day** | `--ignore-all-day` | `GCAL_GLANCE_IGNORE_ALL_DAY` | `false` | Ignore all-day calendar events (`VALUE=DATE`). |
 | **Lookahead Count** | `--lookahead-count` | `GCAL_GLANCE_LOOKAHEAD_COUNT` | `6` | Number of upcoming events to cycle in the idle marquee stream & dial peek (2–10). |
 | **iCal Feed URL** | `--ical-url` | `GCAL_GLANCE_ICAL_URL` | `None` | Google Calendar secret address in iCal format (`.ics`). |
 | **Device Host** | `--host` | `GCAL_GLANCE_HOST` | `10.0.4.20` | BUSY Bar host IP or hostname (USB is always `10.0.4.20`). |
