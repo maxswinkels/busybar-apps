@@ -30,7 +30,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 APP = "gcal-glance"
 GRID_WIDTH = 72
-RADAR_WINDOW_MIN = 180  # 3-Hour rolling action window (1px = 2.5 min)
+RADAR_WINDOW_MIN = 360  # 6-Hour rolling action window (1px = 5 min)
 
 # --- Type Definitions -------------------------------------------------------
 
@@ -166,6 +166,19 @@ class AppConfig(BaseSettings):
             "GCAL_CALENDAR_POLL_INTERVAL_SECONDS",
             "CALSYNC_CALENDAR_POLL_INTERVAL_SECONDS",
             "calendar_poll_interval_seconds",
+        ),
+    )
+
+    # Rolling proximity radar window in minutes (default: 360 = 6h = 5 min/px)
+    radar_window_minutes: int = Field(
+        default=360,
+        ge=60,
+        le=1440,
+        validation_alias=AliasChoices(
+            "GCAL_GLANCE_RADAR_WINDOW_MINUTES",
+            "GCAL_RADAR_WINDOW_MINUTES",
+            "CALSYNC_RADAR_WINDOW_MINUTES",
+            "radar_window_minutes",
         ),
     )
 
@@ -356,12 +369,22 @@ def _parse_args() -> argparse.Namespace:
             " (2-10, default: 6)"
         ),
     )
+    p.add_argument(
+        "--radar-window-minutes",
+        type=int,
+        default=cfg.radar_window_minutes,
+        help=(
+            "Duration of rolling proximity radar window in minutes (60-1440,"
+            " default: 360 = 5 min/px)"
+        ),
+    )
     args, _ = p.parse_known_args()
     set_config(
         host=args.host,
         ical_url=args.ical_url,
         demo=args.demo,
         lookahead_count=args.lookahead_count,
+        radar_window_minutes=args.radar_window_minutes,
     )
     return args
 
@@ -1550,14 +1573,15 @@ def render_aero_idle(
         ]
     )
 
-    # Render upcoming meeting blocks in the 3h rolling runway window
+    # Render upcoming meeting blocks in the rolling runway window
+    radar_win_min = get_config().radar_window_minutes
     for i in range(3):
         blk_id = f"radar_blk_{i}"
         if i < len(upcoming_events):
             evt = upcoming_events[i]
             offset_start_sec = (evt.start - now).total_seconds()
             offset_end_sec = (evt.end - now).total_seconds()
-            window_sec = RADAR_WINDOW_MIN * 60.0
+            window_sec = radar_win_min * 60.0
 
             if 0 <= offset_start_sec < window_sec:
                 x_start = min(

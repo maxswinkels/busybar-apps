@@ -43,7 +43,7 @@ Aero Horizon divides the 72×16 canvas into 3 functional vertical tiers:
 - **Wide 65px Text Viewport**: Marquee scrolling for primary event title, location/platform, and configurable downstream schedule lookahead (default: 3 events).
 
 ### 3. Tier 3: Dual-Mode Dynamic Horizon (`y=14..15`)
-- **Idle Proximity Radar**: 3-hour rolling window at $2.5\text{ min/px}$. Visualizes current time anchor (`NOW ●` beacon at `x=0..1`) and proportional upcoming event blocks with accurate temporal spacing.
+- **Idle Proximity Radar**: 6-hour rolling window at $5\text{ min/px}$ (default, configurable via `--radar-window-minutes`). Visualizes current time anchor (`NOW ●` beacon at `x=0..1`) and proportional upcoming event blocks with accurate temporal spacing.
 - **Precision Elapsed Horizon**: 72px active meeting gauge with 25%, 50%, and 75% tick marks (`#303030FF`) and a bright 1px white playhead needle (`#FFFFFFFF`).
 - **Tight-Turn Pip (`▌`)**: Illuminates amber at `x=70` when the downstream meeting buffer is $<5\text{ minutes}$.
 
@@ -99,6 +99,7 @@ All configuration options can be set via command-line arguments or `.env` enviro
 
 | Setting | CLI Flag | Env Variable | Default | Description |
 | :--- | :--- | :--- | :---: | :--- |
+| **Radar Window** | `--radar-window-minutes` | `GCAL_GLANCE_RADAR_WINDOW_MINUTES` | `360` | Duration of idle rolling radar window in minutes (60–1440). `360` = 6h window ($5\text{ min/px}$). |
 | **Lookahead Count** | `--lookahead-count` | `GCAL_GLANCE_LOOKAHEAD_COUNT` | `6` | Number of upcoming events to cycle in the idle marquee stream & dial peek (2–10). |
 | **iCal Feed URL** | `--ical-url` | `GCAL_GLANCE_ICAL_URL` | `None` | Google Calendar secret address in iCal format (`.ics`). |
 | **Device Host** | `--host` | `GCAL_GLANCE_HOST` | `10.0.4.20` | BUSY Bar host IP or hostname (USB is always `10.0.4.20`). |
