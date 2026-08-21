@@ -9,4 +9,3 @@ repos:
         args: [--fix=lf]
       - id: check-yaml
       - id: check-toml
-
