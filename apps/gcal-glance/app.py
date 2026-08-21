@@ -24,6 +24,7 @@ except ImportError:
     ZoneInfo = None  # type: ignore
 
 import httpx
+from dateutil import rrule
 from pydantic import AliasChoices, AnyHttpUrl, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -458,28 +459,40 @@ def _unescape_ical(text_val: str) -> str:
     )
 
 
-def _parse_ical_datetime(val: str, params: str = "") -> datetime | None:
-    """Parse an iCal DTSTART/DTEND string into a timezone-aware UTC datetime."""
+def _parse_ical_datetime(
+    val: str, params: str = "", as_utc: bool = True
+) -> datetime | None:
+    """Parse an iCal DTSTART/DTEND string into a timezone-aware datetime."""
     if "VALUE=DATE" in params or len(val.strip()) == 8:
         return None  # Skip all-day events
     val = val.strip()
     try:
         if val.endswith("Z"):
-            return datetime.strptime(val, "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc)
+            dt = datetime.strptime(val, "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc)
+            return dt if not as_utc else dt.astimezone(timezone.utc)
         if "T" in val:
             dt = datetime.strptime(val, "%Y%m%dT%H%M%S")
             tzid_match = re.search(r"TZID=([^;:]+)", params, re.IGNORECASE)
             if tzid_match and ZoneInfo is not None:
                 tz_name = tzid_match.group(1).strip()
                 try:
-                    return dt.replace(tzinfo=ZoneInfo(tz_name)).astimezone(timezone.utc)
+                    tz_dt = dt.replace(tzinfo=ZoneInfo(tz_name))
+                    return tz_dt if not as_utc else tz_dt.astimezone(timezone.utc)
                 except Exception:
                     pass
             # Fallback to local system timezone -> UTC
-            return dt.astimezone().astimezone(timezone.utc)
+            local_dt = dt.astimezone()
+            return local_dt if not as_utc else local_dt.astimezone(timezone.utc)
     except Exception:
         pass
     return None
+
+
+def _normalize_rrule_str(rrule_str: str) -> str:
+    """Normalize iCal RRULE strings (e.g. date-only UNTIL) for dateutil.rrule."""
+    rrule_str = re.sub(r"UNTIL=(\d{8})(?!T)", r"UNTIL=\1T235959Z", rrule_str)
+    rrule_str = re.sub(r"UNTIL=(\d{8}T\d{6})(?!Z)", r"UNTIL=\1Z", rrule_str)
+    return rrule_str
 
 
 async def fetch_events(
@@ -504,44 +517,135 @@ async def fetch_events(
 
     try:
         lines = _unfold_ical(content)
-        events: list[CalendarEvent] = []
+        raw_events: list[dict[str, Any]] = []
         in_vevent = False
-        event_data: dict[str, str] = {}
+        event_data: dict[str, Any] = {}
         now = datetime.now(timezone.utc)
+        window_end = now + timedelta(days=60)
 
         for line in lines:
             line_str = line.strip()
             if line_str == "BEGIN:VEVENT":
                 in_vevent = True
-                event_data = {}
+                event_data = {"EXDATES": []}
             elif line_str == "END:VEVENT":
                 if in_vevent:
                     in_vevent = False
-                    uid = event_data.get("UID", "")
-                    summary = _unescape_ical(event_data.get("SUMMARY", "(No title)"))
-                    description = _unescape_ical(event_data.get("DESCRIPTION", ""))
-                    location = _unescape_ical(event_data.get("LOCATION", ""))
-                    color = event_data.get("COLOR", "") or event_data.get(
-                        "X-APPLE-CALENDAR-COLOR", ""
-                    )
+                    raw_events.append(dict(event_data))
+            elif in_vevent:
+                if ":" in line:
+                    key_part, val = line.split(":", 1)
+                    if ";" in key_part:
+                        key, params = key_part.split(";", 1)
+                    else:
+                        key, params = key_part, ""
+                    key_upper = key.upper()
+                    if key_upper == "EXDATE":
+                        event_data.setdefault("EXDATES", []).append((val, params))
+                    elif key_upper == "RECURRENCE-ID":
+                        event_data["RECURRENCE_ID_VAL"] = val
+                        event_data["RECURRENCE_ID_PARAMS"] = params
+                    elif key_upper in (
+                        "UID",
+                        "SUMMARY",
+                        "DESCRIPTION",
+                        "LOCATION",
+                        "COLOR",
+                        "X-APPLE-CALENDAR-COLOR",
+                        "RRULE",
+                        "STATUS",
+                    ):
+                        event_data[key_upper] = val
+                    elif key_upper == "DTSTART":
+                        event_data["DTSTART_VAL"] = val
+                        event_data["DTSTART_PARAMS"] = params
+                    elif key_upper == "DTEND":
+                        event_data["DTEND_VAL"] = val
+                        event_data["DTEND_PARAMS"] = params
 
-                    dtstart_val = event_data.get("DTSTART_VAL", "")
-                    dtstart_params = event_data.get("DTSTART_PARAMS", "")
-                    dtend_val = event_data.get("DTEND_VAL", "")
-                    dtend_params = event_data.get("DTEND_PARAMS", "")
+        # 1. Collect overridden recurrence instances to suppress base RRULE occurrences
+        overridden_recs: set[tuple[str, datetime]] = set()
+        for ed in raw_events:
+            uid = ed.get("UID", "")
+            rec_val = ed.get("RECURRENCE_ID_VAL")
+            rec_params = ed.get("RECURRENCE_ID_PARAMS", "")
+            if rec_val and uid:
+                rec_dt = _parse_ical_datetime(rec_val, rec_params, as_utc=True)
+                if rec_dt is not None:
+                    overridden_recs.add((uid, rec_dt))
 
-                    start_dt = _parse_ical_datetime(dtstart_val, dtstart_params)
-                    end_dt = (
-                        _parse_ical_datetime(dtend_val, dtend_params)
-                        if dtend_val
-                        else None
-                    )
+        events: list[CalendarEvent] = []
+        for ed in raw_events:
+            uid = ed.get("UID", "")
+            status = ed.get("STATUS", "").upper()
+            if status == "CANCELLED":
+                continue
 
-                    if start_dt is None:
-                        continue
-                    if end_dt is None:
-                        end_dt = start_dt + timedelta(hours=1)
+            summary = _unescape_ical(ed.get("SUMMARY", "(No title)"))
+            description = _unescape_ical(ed.get("DESCRIPTION", ""))
+            location = _unescape_ical(ed.get("LOCATION", ""))
+            color = ed.get("COLOR", "") or ed.get("X-APPLE-CALENDAR-COLOR", "")
 
+            dtstart_val = ed.get("DTSTART_VAL", "")
+            dtstart_params = ed.get("DTSTART_PARAMS", "")
+            dtend_val = ed.get("DTEND_VAL", "")
+            dtend_params = ed.get("DTEND_PARAMS", "")
+
+            start_dt_raw = _parse_ical_datetime(
+                dtstart_val, dtstart_params, as_utc=False
+            )
+            if start_dt_raw is None:
+                continue
+            end_dt_raw = (
+                _parse_ical_datetime(dtend_val, dtend_params, as_utc=False)
+                if dtend_val
+                else None
+            )
+            if end_dt_raw is None:
+                end_dt_raw = start_dt_raw + timedelta(hours=1)
+            duration = max(timedelta(seconds=0), end_dt_raw - start_dt_raw)
+
+            start_dt = start_dt_raw.astimezone(timezone.utc)
+            end_dt = end_dt_raw.astimezone(timezone.utc)
+
+            rrule_str = ed.get("RRULE")
+            if rrule_str:
+                exdates: set[datetime] = set()
+                for ex_val, ex_params in ed.get("EXDATES", []):
+                    for part in ex_val.split(","):
+                        ex_dt = _parse_ical_datetime(
+                            part.strip(), ex_params, as_utc=True
+                        )
+                        if ex_dt is not None:
+                            exdates.add(ex_dt)
+
+                try:
+                    norm_rrule = _normalize_rrule_str(rrule_str)
+                    rule = rrule.rrulestr(norm_rrule, dtstart=start_dt_raw)
+                    local_tz = start_dt_raw.tzinfo or timezone.utc
+                    local_now = now.astimezone(local_tz)
+                    local_window_end = window_end.astimezone(local_tz)
+
+                    for occ_local in rule.between(
+                        local_now - timedelta(hours=1), local_window_end, inc=True
+                    ):
+                        occ_start = occ_local.astimezone(timezone.utc)
+                        if occ_start in exdates or (uid, occ_start) in overridden_recs:
+                            continue
+                        occ_end = occ_start + duration
+                        if occ_end > now:
+                            events.append(
+                                CalendarEvent(
+                                    uid=f"{uid}_{occ_start.isoformat()}",
+                                    summary=summary,
+                                    start=occ_start,
+                                    end=occ_end,
+                                    color=color,
+                                    description=description,
+                                    location=location,
+                                )
+                            )
+                except Exception:
                     if end_dt > now:
                         events.append(
                             CalendarEvent(
@@ -554,29 +658,19 @@ async def fetch_events(
                                 location=location,
                             )
                         )
-            elif in_vevent:
-                if ":" in line:
-                    key_part, val = line.split(":", 1)
-                    if ";" in key_part:
-                        key, params = key_part.split(";", 1)
-                    else:
-                        key, params = key_part, ""
-                    key_upper = key.upper()
-                    if key_upper in (
-                        "UID",
-                        "SUMMARY",
-                        "DESCRIPTION",
-                        "LOCATION",
-                        "COLOR",
-                        "X-APPLE-CALENDAR-COLOR",
-                    ):
-                        event_data[key_upper] = val
-                    elif key_upper == "DTSTART":
-                        event_data["DTSTART_VAL"] = val
-                        event_data["DTSTART_PARAMS"] = params
-                    elif key_upper == "DTEND":
-                        event_data["DTEND_VAL"] = val
-                        event_data["DTEND_PARAMS"] = params
+            else:
+                if end_dt > now:
+                    events.append(
+                        CalendarEvent(
+                            uid=uid,
+                            summary=summary,
+                            start=start_dt,
+                            end=end_dt,
+                            color=color,
+                            description=description,
+                            location=location,
+                        )
+                    )
 
         events.sort(key=lambda e: e.start)
         return events
@@ -2202,7 +2296,7 @@ class InputListener:
         """Connect to WebSocket and stream input events with reconnection backoff."""
         # Try busylib AsyncBusyBar first if available
         try:
-            from busylib import AsyncBusyBar
+            from busylib import AsyncBusyBar  # type: ignore[import-untyped]
 
             kwargs: dict[str, Any] = {"token": self.token} if self.token else {}
             bb = AsyncBusyBar(self.host, **kwargs)

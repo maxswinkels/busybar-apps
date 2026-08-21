@@ -142,7 +142,7 @@ async def test_fetch_events_success(mock_busy_bar_api: respx.MockRouter) -> None
 async def test_fetch_events_recurring_rrule_upcoming(
     mock_busy_bar_api: respx.MockRouter, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A recurring event whose original DTSTART is in the past should still produce upcoming occurrences."""
+    """A recurring event with past DTSTART should produce upcoming occurrences."""
     # Freeze datetime to 2026-08-21 14:00:00 UTC (10:00 AM EDT)
     fixed_now = datetime(2026, 8, 21, 14, 0, 0, tzinfo=timezone.utc)
 
@@ -185,12 +185,118 @@ END:VCALENDAR
         events = await fetch_events(client, ical_url)
 
     assert events is not None
-    # The immediate next event MUST be the Weekly Team Sync occurrence on 2026-08-21 18:00 UTC
+    # The immediate next event MUST be the occurrence on 2026-08-21 18:00 UTC
     assert len(events) >= 2
     assert events[0].summary == "Weekly Team Sync"
     assert events[0].start == datetime(2026, 8, 21, 18, 0, 0, tzinfo=timezone.utc)
     assert events[0].end == datetime(2026, 8, 21, 18, 30, 0, tzinfo=timezone.utc)
     assert events[1].summary == "Saturday Workshop"
+
+
+@pytest.mark.asyncio
+async def test_fetch_events_recurring_exdate_and_recurrence_id(
+    mock_busy_bar_api: respx.MockRouter, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """EXDATE skips cancelled occurrences; RECURRENCE-ID overrides instances."""
+    fixed_now = datetime(2026, 8, 21, 14, 0, 0, tzinfo=timezone.utc)
+
+    # Weekly Friday event at 18:00 UTC.
+    # Aug 21 instance is overridden with RECURRENCE-ID and moved to 19:00 UTC.
+    # Aug 28 instance is excluded via EXDATE.
+    ics_content = """BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//Google Inc//Google Calendar 70.9054//EN
+BEGIN:VEVENT
+UID:recurring-base@google.com
+SUMMARY:Friday Coffee
+DTSTART:20260102T180000Z
+DTEND:20260102T183000Z
+RRULE:FREQ=WEEKLY;BYDAY=FR
+EXDATE:20260828T180000Z
+END:VEVENT
+BEGIN:VEVENT
+UID:recurring-base@google.com
+RECURRENCE-ID:20260821T180000Z
+SUMMARY:Friday Coffee (Rescheduled)
+DTSTART:20260821T190000Z
+DTEND:20260821T193000Z
+END:VEVENT
+BEGIN:VEVENT
+UID:cancelled-event@google.com
+SUMMARY:Cancelled Meeting
+STATUS:CANCELLED
+DTSTART:20260821T200000Z
+DTEND:20260821T210000Z
+END:VEVENT
+END:VCALENDAR
+"""
+    ical_url = "https://calendar.google.com/calendar/ical/feed/basic.ics"
+    mock_busy_bar_api.get(ical_url).respond(status_code=200, text=ics_content)
+
+    class FixedDateTime(datetime):
+        @classmethod
+        def now(cls, tz: Any = None) -> datetime:
+            if tz is not None:
+                return fixed_now.astimezone(tz)
+            return fixed_now
+
+    monkeypatch.setattr(app, "datetime", FixedDateTime)
+
+    async with httpx.AsyncClient() as client:
+        events = await fetch_events(client, ical_url)
+
+    assert events is not None
+    # Cancelled event must not appear
+    assert not any(e.summary == "Cancelled Meeting" for e in events)
+    # Aug 21 occurrence is overridden to 19:00
+    assert events[0].summary == "Friday Coffee (Rescheduled)"
+    assert events[0].start == datetime(2026, 8, 21, 19, 0, 0, tzinfo=timezone.utc)
+    # Aug 28 occurrence was in EXDATE, so next base occurrence is Sep 04
+    assert events[1].summary == "Friday Coffee"
+    assert events[1].start == datetime(2026, 9, 4, 18, 0, 0, tzinfo=timezone.utc)
+
+
+@pytest.mark.asyncio
+async def test_fetch_events_monthly_rrule(
+    mock_busy_bar_api: respx.MockRouter, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Monthly BYDAY recurrence (e.g. 3rd Friday of month)."""
+    fixed_now = datetime(2026, 8, 21, 14, 0, 0, tzinfo=timezone.utc)
+
+    # 3rd Friday of every month at 14:00 America/New_York (18:00 UTC)
+    # Aug 21, 2026 is 3rd Friday of August 2026
+    monthly_ics = """BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//Google Inc//Google Calendar 70.9054//EN
+BEGIN:VEVENT
+UID:monthly-3fr@google.com
+SUMMARY:Bill + Gabriel
+DTSTART;TZID=America/New_York:20251121T140000
+DTEND;TZID=America/New_York:20251121T144000
+RRULE:FREQ=MONTHLY;BYDAY=3FR
+END:VEVENT
+END:VCALENDAR
+"""
+    ical_url = "https://calendar.google.com/calendar/ical/feed/basic.ics"
+    mock_busy_bar_api.get(ical_url).respond(status_code=200, text=monthly_ics)
+
+    class FixedDateTime(datetime):
+        @classmethod
+        def now(cls, tz: Any = None) -> datetime:
+            if tz is not None:
+                return fixed_now.astimezone(tz)
+            return fixed_now
+
+    monkeypatch.setattr(app, "datetime", FixedDateTime)
+
+    async with httpx.AsyncClient() as client:
+        events = await fetch_events(client, ical_url)
+
+    assert events is not None
+    assert len(events) >= 1
+    assert events[0].summary == "Bill + Gabriel"
+    assert events[0].start == datetime(2026, 8, 21, 18, 0, 0, tzinfo=timezone.utc)
+    assert events[0].end == datetime(2026, 8, 21, 18, 40, 0, tzinfo=timezone.utc)
 
 
 @pytest.mark.asyncio
