@@ -105,6 +105,8 @@ All configuration options can be set via command-line arguments or `.env` enviro
 | **iCal Feed URL** | `--ical-url` | `GCAL_GLANCE_ICAL_URL` | `None` | Google Calendar secret address in iCal format (`.ics`). |
 | **Device Host** | `--host` | `GCAL_GLANCE_HOST` | `10.0.4.20` | BUSY Bar host IP or hostname (USB is always `10.0.4.20`). |
 | **Demo Mode** | `--demo` | `GCAL_GLANCE_DEMO` | `false` | Run simulated multi-event schedule without a live calendar feed. |
+| **Sound** | `--sound`<br>`--no-sound` | `GCAL_GLANCE_SOUND` | `true` | Enable audible alert chimes on approaching checkpoints and event start. |
+| **Volume** | `--volume` | `GCAL_GLANCE_VOLUME` | `None` | Speaker volume level (0–100). Default `None` keeps device's current volume. |
 | **Poll Interval** | — | `GCAL_GLANCE_CALENDAR_POLL_INTERVAL_SECONDS` | `120` | Frequency in seconds to re-fetch and parse the iCal feed. |
 | **Alert Sequence** | — | `GCAL_GLANCE_UPCOMING_ALERT_SEQUENCE_MINUTES` | `15,5,2,0` | Alert checkpoint intervals before event start. |
 | **Alert Duration** | — | `GCAL_GLANCE_ALERT_BANNER_DURATION_SECONDS` | `15` | Seconds the alert banner overlay stays on screen. |

@@ -1383,3 +1383,97 @@ def test_top_led_halo_states() -> None:
     app.manual_sync_flash_until = now + timedelta(seconds=0.5)
     _, extra = evaluate_display_with_hardware(now, [])
     assert extra["led_notification_color"] == LED_COLOR_SYNC_ACK
+
+
+def test_sound_and_volume_config() -> None:
+    from pydantic import ValidationError
+
+    from app import AppConfig
+
+    # Default configuration: sound=True, volume=None
+    cfg = AppConfig()
+    assert cfg.sound is True
+    assert cfg.volume is None
+
+    # Custom configuration
+    cfg_custom = AppConfig(sound=False, volume=75)
+    assert cfg_custom.sound is False
+    assert cfg_custom.volume == 75
+
+    # Bounds validation for volume (0..100)
+    assert AppConfig(volume=0).volume == 0
+    assert AppConfig(volume=100).volume == 100
+
+    with pytest.raises(ValidationError):
+        AppConfig(volume=-1)
+    with pytest.raises(ValidationError):
+        AppConfig(volume=101)
+
+
+async def test_play_sound_api_dispatch(mock_busy_bar_api: respx.MockRouter) -> None:
+    from app import STOCK_SOUND_EVENT_START, play_sound
+
+    play_route = mock_busy_bar_api.post("http://10.0.4.20/api/audio/play").respond(
+        json={"success": True}
+    )
+    vol_route = mock_busy_bar_api.post("http://10.0.4.20/api/audio/volume").respond(
+        json={"success": True}
+    )
+
+    async with httpx.AsyncClient() as client:
+        # Play sound without explicit volume
+        await play_sound(client, STOCK_SOUND_EVENT_START)
+        assert play_route.called
+        assert not vol_route.called
+        assert (
+            play_route.calls.last.request.headers["content-type"] == "application/json"
+        )
+        body = json.loads(play_route.calls.last.request.content)
+        assert body["stock_path"] == "calendar_event_starts"
+
+        # Play sound with explicit volume setting
+        await play_sound(client, STOCK_SOUND_EVENT_START, volume=80)
+        assert vol_route.called
+        vol_body = json.loads(vol_route.calls.last.request.content)
+        assert vol_body["volume"] == 80
+
+
+def test_alert_triggers_queue_sound_chimes(monkeypatch: pytest.MonkeyPatch) -> None:
+    import app
+    from app import (
+        STOCK_SOUND_EVENT_START,
+        STOCK_SOUND_REMINDER,
+        CalendarEvent,
+        evaluate_display_with_hardware,
+    )
+
+    app._pending_audio_chimes.clear()
+    app.fired_checkpoints.clear()
+    app.active_alert = None
+
+    now = datetime(2026, 8, 16, 9, 45, tzinfo=timezone.utc)
+    evt = CalendarEvent(
+        "audio-evt-1",
+        "Design Review",
+        now + timedelta(minutes=15),
+        now + timedelta(minutes=45),
+    )
+
+    # 1. 15m warning alert -> triggers STOCK_SOUND_REMINDER
+    monkeypatch.setattr(app.get_config(), "sound", True)
+    evaluate_display_with_hardware(now, [evt])
+    assert app._pending_audio_chimes == [STOCK_SOUND_REMINDER]
+    app._pending_audio_chimes.clear()
+
+    # 2. 0m event start -> triggers STOCK_SOUND_EVENT_START
+    now_start = evt.start
+    evaluate_display_with_hardware(now_start, [evt])
+    assert app._pending_audio_chimes == [STOCK_SOUND_EVENT_START]
+    app._pending_audio_chimes.clear()
+
+    # 3. When sound is muted (sound=False), no chimes are queued
+    app.fired_checkpoints.clear()
+    app.active_alert = None
+    monkeypatch.setattr(app.get_config(), "sound", False)
+    evaluate_display_with_hardware(now, [evt])
+    assert app._pending_audio_chimes == []

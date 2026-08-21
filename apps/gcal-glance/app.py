@@ -206,6 +206,30 @@ class AppConfig(BaseSettings):
         ),
     )
 
+    # Enable audible alert chimes (default: True)
+    sound: bool = Field(
+        default=True,
+        validation_alias=AliasChoices(
+            "GCAL_GLANCE_SOUND",
+            "GCAL_SOUND",
+            "CALSYNC_SOUND",
+            "sound",
+        ),
+    )
+
+    # Optional speaker volume level 0-100 (default: None to preserve hardware volume)
+    volume: int | None = Field(
+        default=None,
+        ge=0,
+        le=100,
+        validation_alias=AliasChoices(
+            "GCAL_GLANCE_VOLUME",
+            "GCAL_VOLUME",
+            "CALSYNC_VOLUME",
+            "volume",
+        ),
+    )
+
     @field_validator("upcoming_alert_sequence_minutes", mode="before")
     @classmethod
     def _parse_sequence(cls, v: object) -> object:
@@ -397,6 +421,18 @@ def _parse_args() -> argparse.Namespace:
             "Include all-day calendar events (or set GCAL_GLANCE_INCLUDE_ALL_DAY=true)"
         ),
     )
+    p.add_argument(
+        "--sound",
+        action=argparse.BooleanOptionalAction,
+        default=cfg.sound,
+        help="Enable audible alert chimes (default: True, use --no-sound to mute)",
+    )
+    p.add_argument(
+        "--volume",
+        type=int,
+        default=cfg.volume,
+        help="Speaker volume 0-100 (default: keep device volume)",
+    )
     args, _ = p.parse_known_args()
     set_config(
         host=args.host,
@@ -405,6 +441,8 @@ def _parse_args() -> argparse.Namespace:
         lookahead_count=args.lookahead_count,
         radar_window_minutes=args.radar_window_minutes,
         include_all_day=args.include_all_day,
+        sound=args.sound,
+        volume=args.volume,
     )
     return args
 
@@ -422,6 +460,37 @@ async def draw(
     if resp.status_code == 400:
         print(f"[draw] Bad payload: {json.dumps(body, indent=2)}", file=sys.stderr)
     resp.raise_for_status()
+
+
+STOCK_SOUND_EVENT_START: Final[str] = "calendar_event_starts"
+STOCK_SOUND_REMINDER: Final[str] = "calendar_reminder_ends"
+_pending_audio_chimes: list[str] = []
+_background_tasks: set[asyncio.Task[Any]] = set()
+
+
+async def play_sound(
+    client: httpx.AsyncClient,
+    stock_path: str,
+    volume: int | None = None,
+) -> None:
+    """Play a stock audio chime on the BUSY Bar speaker."""
+    try:
+        if volume is not None:
+            try:
+                await client.post(
+                    f"{BASE}/api/audio/volume",
+                    json={"volume": volume},
+                    timeout=2.0,
+                )
+            except Exception:
+                pass
+        await client.post(
+            f"{BASE}/api/audio/play",
+            json={"application_name": APP, "stock_path": stock_path},
+            timeout=3.0,
+        )
+    except Exception as e:
+        print(f"[audio] playback error: {e}", file=sys.stderr, flush=True)
 
 
 # --- Data Models ------------------------------------------------------------
@@ -2326,6 +2395,17 @@ def evaluate_display_with_hardware(
                 current_event = evt
                 break
 
+    if (
+        current_event
+        and current_event.start <= now < current_event.end
+        and (current_event.uid, 0) not in fired_checkpoints
+    ):
+        fired_checkpoints.add((current_event.uid, 0))
+        if (
+            now - current_event.start
+        ).total_seconds() < cfg.alert_banner_duration_seconds and cfg.sound:
+            _pending_audio_chimes.append(STOCK_SOUND_EVENT_START)
+
     upcoming_events = [e for e in events if e.start > now and e != current_event]
     upcoming_events.sort(key=lambda e: e.start)
 
@@ -2364,6 +2444,13 @@ def evaluate_display_with_hardware(
                     expires_at=now
                     + timedelta(seconds=cfg.alert_banner_duration_seconds),
                 )
+                if cfg.sound:
+                    chime = (
+                        STOCK_SOUND_EVENT_START
+                        if target_cp == 0
+                        else STOCK_SOUND_REMINDER
+                    )
+                    _pending_audio_chimes.append(chime)
                 break
         break
 
@@ -2715,6 +2802,15 @@ async def _display_loop(
                 apply_hardware_input(now, evt_type, val, events)
 
         elements, extra = evaluate_display_with_hardware(now, events)
+
+        # Dispatch any pending alert chimes asynchronously
+        if _pending_audio_chimes:
+            cfg = get_config()
+            while _pending_audio_chimes:
+                chime = _pending_audio_chimes.pop(0)
+                task = asyncio.create_task(play_sound(client, chime, volume=cfg.volume))
+                _background_tasks.add(task)
+                task.add_done_callback(_background_tasks.discard)
 
         import json
 
