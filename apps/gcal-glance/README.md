@@ -190,7 +190,7 @@ Beyond the 5×5 micro-glyphs, Aero Horizon utilizes dedicated hardware symbols a
 
 | Indicator / Symbol | Location | Visual Element | Purpose & Behavior |
 | :--- | :---: | :---: | :--- |
-| **Current Time Beacon** | Tier 3 Left | `NOW ●` (`x=0..1`) | Anchors the start of the 3-hour rolling proximity radar window at the current timestamp. |
+| **Current Time Beacon** | Tier 3 Left | `NOW ●` (`x=0..1`) | Anchors the start of the rolling proximity radar window (default: 6h at $5\text{ min/px}$) at the current timestamp. |
 | **Active Playhead Needle** | Tier 3 Rail | `│` (`x=0..71`) | 1px crisp white playhead needle (`#FFFFFF`) tracking real-time linear progress through an active meeting. |
 | **Quarter Milestones** | Tier 3 Rail | `25%` · `50%` · `75%` | Subtle slate tick marks (`#303030`) at `x=18`, `x=36`, and `x=54` providing instant pacing awareness without reading numbers. |
 | **Tight-Turn Pip** | Tier 3 Far Right | `▌` (`x=70..71`) | Flashing warning pip that illuminates in Amber when downstream meeting buffer is $<5\text{ minutes}$, alerting you to prepare for an immediate next call. |
