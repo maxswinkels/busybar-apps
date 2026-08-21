@@ -1048,16 +1048,16 @@ def test_sanitize_display_text() -> None:
 
 
 def test_lookahead_count_validation() -> None:
-    """Test that lookahead_count is constrained between 2 and 10."""
+    """Test that lookahead_count is constrained between 2 and 20."""
     from pydantic import ValidationError
 
     from app import AppConfig
 
     # Valid values
-    assert AppConfig().lookahead_count == 6
+    assert AppConfig().lookahead_count == 10
     assert AppConfig(lookahead_count=2).lookahead_count == 2
-    assert AppConfig(lookahead_count=6).lookahead_count == 6
     assert AppConfig(lookahead_count=10).lookahead_count == 10
+    assert AppConfig(lookahead_count=20).lookahead_count == 20
 
     # Invalid values below 2
     with pytest.raises(ValidationError):
@@ -1065,9 +1065,9 @@ def test_lookahead_count_validation() -> None:
     with pytest.raises(ValidationError):
         AppConfig(lookahead_count=0)
 
-    # Invalid values above 10
+    # Invalid values above 20
     with pytest.raises(ValidationError):
-        AppConfig(lookahead_count=11)
+        AppConfig(lookahead_count=21)
 
 
 def test_app_name_and_config_env_aliases(monkeypatch: pytest.MonkeyPatch) -> None:
