@@ -139,6 +139,61 @@ async def test_fetch_events_success(mock_busy_bar_api: respx.MockRouter) -> None
 
 
 @pytest.mark.asyncio
+async def test_fetch_events_recurring_rrule_upcoming(
+    mock_busy_bar_api: respx.MockRouter, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A recurring event whose original DTSTART is in the past should still produce upcoming occurrences."""
+    # Freeze datetime to 2026-08-21 14:00:00 UTC (10:00 AM EDT)
+    fixed_now = datetime(2026, 8, 21, 14, 0, 0, tzinfo=timezone.utc)
+
+    # 1. Weekly recurring Friday 18:00 UTC (2:00 PM EDT) started in Jan 2026
+    # 2. Future single event on Saturday Aug 22, 2026
+    recurring_ics = """BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//Google Inc//Google Calendar 70.9054//EN
+BEGIN:VEVENT
+UID:recurring-weekly@google.com
+SUMMARY:Weekly Team Sync
+LOCATION:Meet
+DTSTART:20260102T180000Z
+DTEND:20260102T183000Z
+RRULE:FREQ=WEEKLY;BYDAY=FR
+END:VEVENT
+BEGIN:VEVENT
+UID:future-single@google.com
+SUMMARY:Saturday Workshop
+LOCATION:Office
+DTSTART:20260822T130000Z
+DTEND:20260822T140000Z
+END:VEVENT
+END:VCALENDAR
+"""
+    ical_url = "https://calendar.google.com/calendar/ical/feed/basic.ics"
+    mock_busy_bar_api.get(ical_url).respond(status_code=200, text=recurring_ics)
+
+    # Monkeypatch datetime.now in app module
+    class FixedDateTime(datetime):
+        @classmethod
+        def now(cls, tz: Any = None) -> datetime:
+            if tz is not None:
+                return fixed_now.astimezone(tz)
+            return fixed_now
+
+    monkeypatch.setattr(app, "datetime", FixedDateTime)
+
+    async with httpx.AsyncClient() as client:
+        events = await fetch_events(client, ical_url)
+
+    assert events is not None
+    # The immediate next event MUST be the Weekly Team Sync occurrence on 2026-08-21 18:00 UTC
+    assert len(events) >= 2
+    assert events[0].summary == "Weekly Team Sync"
+    assert events[0].start == datetime(2026, 8, 21, 18, 0, 0, tzinfo=timezone.utc)
+    assert events[0].end == datetime(2026, 8, 21, 18, 30, 0, tzinfo=timezone.utc)
+    assert events[1].summary == "Saturday Workshop"
+
+
+@pytest.mark.asyncio
 async def test_fetch_events_http_error_returns_none(
     mock_busy_bar_api: respx.MockRouter,
 ) -> None:
