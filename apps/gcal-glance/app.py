@@ -182,14 +182,14 @@ class AppConfig(BaseSettings):
         ),
     )
 
-    # Ignore all-day calendar events (default: True)
-    ignore_all_day: bool = Field(
-        default=True,
+    # Include all-day calendar events (default: False)
+    include_all_day: bool = Field(
+        default=False,
         validation_alias=AliasChoices(
-            "GCAL_GLANCE_IGNORE_ALL_DAY",
-            "GCAL_IGNORE_ALL_DAY",
-            "CALSYNC_IGNORE_ALL_DAY",
-            "ignore_all_day",
+            "GCAL_GLANCE_INCLUDE_ALL_DAY",
+            "GCAL_INCLUDE_ALL_DAY",
+            "CALSYNC_INCLUDE_ALL_DAY",
+            "include_all_day",
         ),
     )
 
@@ -390,12 +390,11 @@ def _parse_args() -> argparse.Namespace:
         ),
     )
     p.add_argument(
-        "--ignore-all-day",
-        action=argparse.BooleanOptionalAction,
-        default=cfg.ignore_all_day,
+        "--include-all-day",
+        action="store_true",
+        default=cfg.include_all_day,
         help=(
-            "Ignore all-day calendar events (default: True, use"
-            " --no-ignore-all-day to include)"
+            "Include all-day calendar events (or set GCAL_GLANCE_INCLUDE_ALL_DAY=true)"
         ),
     )
     args, _ = p.parse_known_args()
@@ -405,7 +404,7 @@ def _parse_args() -> argparse.Namespace:
         demo=args.demo,
         lookahead_count=args.lookahead_count,
         radar_window_minutes=args.radar_window_minutes,
-        ignore_all_day=args.ignore_all_day,
+        include_all_day=args.include_all_day,
     )
     return args
 
@@ -510,7 +509,7 @@ def _parse_ical_datetime(
     val = val.strip()
     is_all_day = "VALUE=DATE" in params or len(val) == 8
     if is_all_day:
-        if get_config().ignore_all_day:
+        if not get_config().include_all_day:
             return None
         try:
             # All-day event YYYYMMDD -> start of day in local timezone (or UTC)
