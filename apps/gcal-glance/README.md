@@ -58,13 +58,13 @@ stateDiagram-v2
     Alert --> Idle: 15s Timeout Dismissal
     Idle --> Phase1: Event Starts (T-0s)
     Alert --> Phase1: Event Starts (T-0s)
-    
+
     state "Active Meeting Lifecycle" as Active {
         Phase1: Phase 1 — Title Verification (0..15s)\n[● LIVE CALL] - Location - Room
         Phase2: Phase 2 — Focus Flight Deck\n[● LIVE] - 25/50/75% Ticks - Playhead
         Phase3: Phase 3 — Wrap-Up Cue (Last 3m)\n[⚡ WRAP UP] - Tight-Turn Pip
         Overtime: Phase 4 — Overtime Count-Up\n[+04m OVER] - Crimson Flash
-        
+
         Phase1 --> Phase2: After 15s
         Phase2 --> Phase3: Rem <= 3m
         Phase3 --> Overtime: Rem < 0s
@@ -215,6 +215,3 @@ uv run pytest apps/gcal-glance/tests -v
 uv run ruff check apps/gcal-glance
 uv run ruff format --check apps/gcal-glance
 ```
-
-
-
