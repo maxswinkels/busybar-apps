@@ -288,7 +288,7 @@ def upload_asset(
             replace_terminal_line("Device became unavailable during upload; waiting to retry...")
         finally:
             progress_stop.set()
-            progress_thread.join(timeout=1)
+            progress_thread.join()
 
 
 def main() -> int:
@@ -317,6 +317,8 @@ def main() -> int:
 
         if stop_event.is_set():
             return 0
+
+        client.clear()
 
         if not args.muted:
             client.play_audio(REMOTE_AUDIO_NAME)
