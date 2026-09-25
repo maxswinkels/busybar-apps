@@ -1,0 +1,8 @@
+name: Sonos Now Playing
+author: bret@thewortmans.org
+description: Shows the currently playing Sonos track and artist on the BUSY Bar. Auto-discovers speakers; clears the display when playback stops.
+tags:
+  - music
+  - audio
+  - monitor
+preview: ./preview.gif
