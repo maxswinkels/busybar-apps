@@ -63,6 +63,12 @@ ORANGE = "#FF8A1EFF"
 GREEN = "#38D45AFF"
 RED = "#FF3C3CFF"
 CLEAR = "#00000000"
+BLACK = "#000000FF"
+BLUE = "#3C8CFFFF"
+PURPLE = "#B06CFFFF"
+KIND_COLOR = {"permission": ORANGE, "plan": BLUE, "question": PURPLE, "notice": GRAY, "flash": GREEN}
+TOOL_GLYPH = {"Bash": "$", "Edit": "E", "Write": "W", "MultiEdit": "E", "NotebookEdit": "E", "Read": "R",
+              "WebFetch": "@", "WebSearch": "@", "ExitPlanMode": "P", "AskUserQuestion": "?"}
 
 SCROLL_RATE = 1500          # pixel columns per minute
 SCROLL_START_DELAY = 800    # ms
@@ -444,11 +450,13 @@ class Option:
 class Card:
     session_id: str
     tool_use_id: str
-    kind: str                   # permission | plan | question | notice
+    kind: str                   # permission | plan | question | notice | flash
     title: str
     detail: str
     project: str
     surface: str                # iterm | tmux | hold | none
+    label: str = ""             # row 1: task title from the terminal, else Claude's own description
+    glyph: str = "?"
     iterm: str = ""
     tmux: str = ""
     options: list = field(default_factory=list)
@@ -521,7 +529,7 @@ class Store:
 
     def show_flash(self, card, label):
         done = Card(session_id=card.session_id, tool_use_id="", kind="flash", title=card.title,
-                    detail=label, project=card.project, surface="none")
+                    detail=label, label=card.label, glyph=card.glyph, project=card.project, surface="none")
         self.flash = (done, time.monotonic() + 1.5)
         self.dirty.set()
 
@@ -554,6 +562,41 @@ def describe_input(tool, inp):
             value = str(inp[key])
             return os.path.basename(value) if key.endswith("_path") and tool in ("Edit", "Write", "Read") else value
     return json.dumps(inp, ensure_ascii=False)[:200]
+
+
+TITLE_TRAILER = re.compile(r"[\s\-\u2013\u2014|\u00b7(\[]*claude[)\]]?\s*$", re.I)
+
+
+def clean_title(name):
+    """Claude Code titles the terminal "<glyph> <task> (claude)"; keep the task."""
+    name = TITLE_TRAILER.sub("", (name or "").strip())
+    while name and not name[0].isalnum():
+        name = name[1:]
+    return name.strip()[:60]
+
+
+def terminal_title(card):
+    try:
+        if card.surface == "iterm":
+            return clean_title(_osascript(_iterm_script(card.iterm, "return name of s")))
+        if card.surface == "tmux":
+            out = subprocess.run(["tmux", "display-message", "-p", "-t", card.tmux, "#{pane_title}"],
+                                 capture_output=True, text=True, timeout=5).stdout
+            return clean_title(out)
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return ""
+
+
+def own_label(tool, inp):
+    """Row 1 when no terminal title is available: Claude's description, else the file or tool."""
+    if isinstance(inp, dict):
+        if inp.get("description"):
+            return str(inp["description"])
+        for key in ("file_path", "notebook_path"):
+            if inp.get(key):
+                return f"{short_tool(tool)} {os.path.basename(str(inp[key]))}"
+    return short_tool(tool)
 
 
 def permission_options(payload, surface):
@@ -619,9 +662,12 @@ def card_from_permission(payload, headers):
     card = Card(session_id=payload.get("session_id", ""), tool_use_id=payload.get("tool_use_id", ""),
                 kind="permission", title=short_tool(tool), detail=describe_input(tool, inp),
                 project=project, surface=surface, iterm=iterm, tmux=tmux, tool_input=inp)
+    card.glyph = TOOL_GLYPH.get(tool, "M" if tool.startswith("mcp__") else tool[:1].upper() or "?")
+    card.label = own_label(tool, inp)
     if tool == "ExitPlanMode":
         card.kind = "plan"
         card.title = "Plan"
+        card.label = "Plan klaar"
         first = next((ln.strip("# ").strip() for ln in str(inp.get("plan", "")).splitlines() if ln.strip()), "")
         card.detail = first or "Plan ready"
         card.options = plan_options(surface)
@@ -630,6 +676,7 @@ def card_from_permission(payload, headers):
         q = (inp.get("questions") or [{}])[0]
         card.title = (q.get("header") or "Vraag")[:12]
         card.detail = question_text(card)
+        card.label = card.detail
         card.options = question_options(card)
     else:
         card.options = permission_options(payload, surface)
@@ -647,6 +694,10 @@ def verify_on_screen(card):
     all (auto mode and allow rules resolve it silently), and the user may answer
     in the terminal. So the card appears once the numbered dialog is visible,
     takes the real option labels from it, and goes away when the dialog does."""
+    title = terminal_title(card)
+    if title:
+        card.label = title
+        STORE.dirty.set()
     misses = 0
     for attempt in range(600):
         time.sleep(0.7 if not card.verified else 1.0)
@@ -877,52 +928,83 @@ def _scrolling(eid, text, x, y, font, color, width, display="front"):
                  scroll_start_delay=SCROLL_START_DELAY, scroll_repeat_delay=SCROLL_REPEAT_DELAY)
 
 
+def _pill(prefix, x, y, w, h, fill, text, text_color, display, text_width=None):
+    els = [_rect(prefix + "_bg", x, y, w, h, fill, display)]
+    els[0]["radius"] = 2
+    extra = {}
+    if text_width:
+        extra = dict(width=text_width, scroll_rate=SCROLL_RATE, scroll_start_delay=SCROLL_START_DELAY,
+                     scroll_repeat_delay=SCROLL_REPEAT_DELAY)
+    # small-font caps land 3 px below y, so lift the text to sit centred in the pill
+    els.append(_text(prefix + "_tx", text, x + 3, y - 2, "small", text_color, display, **extra))
+    return els
+
+
 def build_frame(card, count, now):
-    """Every element id is sent every frame (hidden ones transparent): the firmware never auto-releases ids."""
-    on_screen = card.state == "on_screen" or not card.options
-    option = card.options[card.selected].label if card.options else ""
-    if card.kind == "question" and card.chosen:
-        option = ("* " if card.options[card.selected].value in card.chosen else "") + option
-    status = "op scherm" if on_screen else (option if card.verified else "...")
-    accent = GRAY if on_screen else ORANGE
+    """Every element id is sent every frame (hidden ones transparent): the firmware never auto-releases ids.
+
+    Front 72x16: accent icon with the tool glyph, the task title on top, the chosen
+    option as a pill below, a thin countdown line along the top edge.
+    Back 160x80: accent header, title, the actual command, the option list."""
+    accent = KIND_COLOR.get(card.kind, ORANGE)
+    on_screen = card.state == "on_screen" or (not card.options and card.kind != "flash")
+    choosing = card.answerable
     if card.kind == "flash":
-        on_screen, status, accent = False, "OK", GREEN
+        status = card.detail
+    elif on_screen:
+        status = "op scherm"
+    elif not card.verified:
+        status = "..."
+    else:
+        status = card.options[card.selected].label
+        if card.kind == "question" and card.options[card.selected].value in card.chosen:
+            status = "* " + status
     remaining = None
     if card.deadline and card.state == "pending":
         remaining = max(0.0, card.deadline - now) / max(1, ARGS.window)
 
-    badge = f"{count}" if count > 1 else ""
-    title = card.title[:8]
-    status = status[:9] if badge else status[:10]
+    label = card.label or card.detail
+    badge = str(count) if count > 1 else ""
+    pill_fill = accent if choosing or card.kind == "flash" else DIM
+    pill_text = WHITE if choosing or card.kind == "flash" else GRAY
+    pill_w = 58 - (6 if badge else 0)
     front = [
-        _text("f_title", title, 0, 0, "tiny", WHITE),
-        _text("f_badge", badge, 71, 0, "tiny", GRAY, align="top_right"),
-        _text("f_opt", status, 71 if not badge else 63, 0, "tiny", accent, align="top_right"),
-        _scrolling("f_detail", card.detail, 0, 6, "small", WHITE if not on_screen else GRAY, FRONT_W),
-        _rect("f_bar", 0, 15, int(FRONT_W * remaining) if remaining is not None else 1, 1,
-              ORANGE if remaining is not None else CLEAR),
+        _rect("f_icon", 0, 0, 12, 16, accent),
+        _text("f_glyph", card.glyph, 6, 3, "small", WHITE, align="top_mid"),
+        _rect("f_timer", 14, 0, int(58 * remaining) if remaining is not None else 1, 1,
+              accent if remaining is not None else CLEAR),
+        _scrolling("f_label", label, 14, 1, "small", WHITE, 58 - (6 if badge else 0)),
+        _text("f_badge", badge, 71, 1, "tiny", GRAY, align="top_right"),
     ]
+    front += _pill("f_pill", 14, 9, pill_w, 7, pill_fill, status, pill_text, "front", text_width=pill_w - 5)
 
     back = [
-        _text("b_head", f"{card.project[:14]} | {card.title}", 0, 0, "small", GRAY, "back"),
-        _text("b_badge", f"{count} open" if count > 1 else "", 159, 0, "small", GRAY, "back", align="top_right"),
-        _scrolling("b_detail", card.detail, 0, 11, "normal", WHITE, BACK_W, "back"),
+        _rect("b_head", 0, 0, 160, 12, accent, "back"),
+        _text("b_tool", f"{card.glyph} {card.title.upper()}", 3, 1, "small", BLACK, "back"),
+        _text("b_proj", card.project[:22], 157, 1, "small", BLACK, "back", align="top_right"),
+        _scrolling("b_label", label, 2, 15, "normal", WHITE, 156, "back"),
+        _scrolling("b_detail", card.detail if card.kind != "flash" else "", 2, 28, "small", GRAY, 156, "back"),
     ]
-    rows = card.options[:5] if not on_screen and card.verified and card.kind != "flash" else []
-    for i in range(5):
+    rows = card.options[:4] if choosing else []
+    for i in range(4):
+        y = 40 + i * 9
         if i < len(rows):
             sel = i == card.selected
-            mark = "*" if card.kind == "question" and rows[i].value in card.chosen else (">" if sel else " ")
-            back.append(_text(f"b_opt{i}", f"{mark} {rows[i].label[:28]}", 2, 26 + i * 9, "small",
-                              ORANGE if sel else WHITE, "back"))
+            mark = "* " if card.kind == "question" and rows[i].value in card.chosen else ""
+            back.append(_rect(f"b_opt{i}_bg", 2, y, 110, 8, accent if sel else CLEAR, "back"))
+            back.append(_text(f"b_opt{i}", mark + rows[i].label[:30], 5, y - 1, "small", BLACK if sel else WHITE, "back"))
         else:
-            back.append(_text(f"b_opt{i}", "", 2, 26 + i * 9, "small", CLEAR, "back"))
-    hint = "wacht op je antwoord op het scherm" if on_screen else ("START kies - BACK scherm" + (" - OK volgende" if count > 1 else ""))
+            back.append(_rect(f"b_opt{i}_bg", 2, y, 1, 1, CLEAR, "back"))
+            back.append(_text(f"b_opt{i}", "", 5, y, "small", CLEAR, "back"))
     if card.kind == "flash":
         hint = "doorgegeven aan Claude"
-    back.append(_text("b_hint", hint, 0, 72, "tiny", DIM, "back"))
-    back.append(_rect("b_bar", 0, 79, int(BACK_W * remaining) if remaining is not None else 1, 1,
-                      ORANGE if remaining is not None else CLEAR, "back"))
+    elif on_screen:
+        hint = "wacht op je antwoord op het scherm"
+    else:
+        hint = "wiel kiest - START bevestigt - BACK naar scherm" + (" - OK volgende" if count > 1 else "")
+    back.append(_text("b_hint", hint, 2, 71, "tiny", GRAY, "back"))
+    back.append(_rect("b_bar", 0, 78, int(BACK_W * remaining) if remaining is not None else 1, 2,
+                      accent if remaining is not None else CLEAR, "back"))
     return front + back
 
 
@@ -946,7 +1028,8 @@ def hooks_snippet(listen):
 
 def demo_card():
     card = Card(session_id="demo", tool_use_id="demo", kind="permission", title="Bash",
-                detail="git push origin main", project="busybar-apps", surface="hold")
+                detail="git push origin main", label="Release notes schrijven", glyph="$",
+                project="busybar-apps", surface="hold")
     card.options = permission_options({"permission_suggestions": [{"type": "addRules"}]}, "hold")
     card.deadline = time.monotonic() + ARGS.window * 0.7
     return card
