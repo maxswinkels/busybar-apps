@@ -476,6 +476,7 @@ class Store:
         self.lock = threading.Lock()
         self.dirty = threading.Event()
         self.new_card = threading.Event()
+        self.flash = None           # (Card, until): confirmation shown after an answer
 
     def add(self, card):
         with self.lock:
@@ -516,6 +517,12 @@ class Store:
             if c.surface == "hold" and c.state == "pending":
                 continue
             self.remove(c)
+
+    def show_flash(self, card, label):
+        done = Card(session_id=card.session_id, tool_use_id="", kind="flash", title=card.title,
+                    detail=label, project=card.project, surface="none")
+        self.flash = (done, time.monotonic() + 1.5)
+        self.dirty.set()
 
     def snapshot(self):
         with self.lock:
@@ -703,6 +710,7 @@ def confirm(card):
         card.decision = decision
         card.event.set()
         STORE.remove(card)
+        STORE.show_flash(card, option.label)
         return
     if card.kind == "question":
         q = (card.tool_input.get("questions") or [{}])[card.question_index]
@@ -712,6 +720,7 @@ def confirm(card):
             send_keys_space(card, option.index)
             return
         send_keys(card, ["down"] * option.index + ["enter"])
+        STORE.show_flash(card, option.label)
         card.question_index += 1
         card.selected = 0
         if card.question_index < len(card.tool_input.get("questions") or []):
@@ -723,6 +732,7 @@ def confirm(card):
         return
     send_keys(card, ["esc"] if option.esc else ["down"] * option.index + ["enter"])
     STORE.remove(card)
+    STORE.show_flash(card, option.label)
 
 
 def send_keys_space(card, index):
@@ -874,6 +884,8 @@ def build_frame(card, count, now):
         option = ("* " if card.options[card.selected].value in card.chosen else "") + option
     status = "op scherm" if on_screen else (option if card.verified else "...")
     accent = GRAY if on_screen else ORANGE
+    if card.kind == "flash":
+        on_screen, status, accent = False, "OK", GREEN
     remaining = None
     if card.deadline and card.state == "pending":
         remaining = max(0.0, card.deadline - now) / max(1, ARGS.window)
@@ -895,7 +907,7 @@ def build_frame(card, count, now):
         _text("b_badge", f"{count} open" if count > 1 else "", 159, 0, "small", GRAY, "back", align="top_right"),
         _scrolling("b_detail", card.detail, 0, 11, "normal", WHITE, BACK_W, "back"),
     ]
-    rows = card.options[:5] if not on_screen and card.verified else []
+    rows = card.options[:5] if not on_screen and card.verified and card.kind != "flash" else []
     for i in range(5):
         if i < len(rows):
             sel = i == card.selected
@@ -905,6 +917,8 @@ def build_frame(card, count, now):
         else:
             back.append(_text(f"b_opt{i}", "", 2, 26 + i * 9, "small", CLEAR, "back"))
     hint = "wacht op je antwoord op het scherm" if on_screen else ("START kies - BACK scherm" + (" - OK volgende" if count > 1 else ""))
+    if card.kind == "flash":
+        hint = "doorgegeven aan Claude"
     back.append(_text("b_hint", hint, 0, 72, "tiny", DIM, "back"))
     back.append(_rect("b_bar", 0, 79, int(BACK_W * remaining) if remaining is not None else 1, 1,
                       ORANGE if remaining is not None else CLEAR, "back"))
@@ -978,7 +992,14 @@ def main():
             for stale in [c for c in STORE.for_session_all() if c.state == "on_screen" and now - c.created > 900]:
                 STORE.remove(stale)
                 card = STORE.current()
+            if card is None and STORE.flash and now < STORE.flash[1]:
+                if STORE.dirty.is_set():
+                    STORE.dirty.clear()
+                    if draw(build_frame(STORE.flash[0], 1, now)):
+                        showing = True
+                continue
             if card is None:
+                STORE.flash = None
                 if showing:
                     clear_display()
                     showing = False
