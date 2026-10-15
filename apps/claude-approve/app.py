@@ -839,9 +839,11 @@ def _text(eid, text, x, y, font, color, display="front", align="top_left", **ext
 
 
 def _rect(eid, x, y, w, h, color, display="front", border=False):
-    """Filled block, or with border=True a 1 px outline in `color` and nothing inside."""
+    """Filled block, or with border=True a 1 px outline in `color` and nothing inside.
+
+    `fill` is the firmware's enum ("none" | "solid" | ...), not a boolean."""
     return {"id": eid, "type": "rectangle", "x": x, "y": y, "width": max(1, w), "height": max(1, h),
-            "radius": 0, "fill": not border, "fill_colors": [CLEAR if border else color],
+            "radius": 0, "fill": "none" if border else "solid", "fill_colors": [color],
             "border_width": 1 if border else 0, "border_color": color,
             "display": display, "timeout": ELEMENT_TIMEOUT}
 
@@ -875,11 +877,7 @@ def front_elements(card, status, choosing, on_screen, accent, remaining, label, 
     text_color = WHITE if choosing or card.kind == "flash" else GRAY
     arrow = ">" if choosing else ("+" if card.kind == "flash" else "")
     return [
-        # the firmware fills every rectangle, so the outline is four 1 px lines
-        _rect("f_box_t", 0, 0, box_w, 1, box_color),
-        _rect("f_box_b", 0, 8, box_w, 1, box_color),
-        _rect("f_box_l", 0, 0, 1, 9, box_color),
-        _rect("f_box_r", max(0, box_w - 1), 0, 1, 9, box_color),
+        _rect("f_box", 0, 0, box_w, 9, CLEAR if box_w == 1 else box_color, border=True),
         _text("f_arrow", arrow, 2, 0, "small", box_color if arrow else CLEAR),
         _scrolling("f_opt0", status, 8 if arrow else 0, 0, "small", text_color, max(4, box_w - 10) if arrow else right_edge),
         _scrolling("f_opt1", nxt, box_w + 5, 0, "small", WHITE, max(4, right_edge - box_w - 5)),
@@ -983,6 +981,7 @@ def main():
         clear_display()
         return 0
 
+    clear_display()
     serve_hooks(ARGS.listen)
     buttons = ButtonListener(ARGS.host)
     buttons.start()
