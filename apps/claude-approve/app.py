@@ -64,6 +64,7 @@ GREEN = "#38D45AFF"
 RED = "#FF3C3CFF"
 CLEAR = "#00000000"
 BLACK = "#000000FF"
+Y_GLYPH = "#FFC83CFF"
 BLUE = "#3C8CFFFF"
 PURPLE = "#B06CFFFF"
 KIND_COLOR = {"permission": ORANGE, "plan": BLUE, "question": PURPLE, "notice": GRAY, "flash": GREEN}
@@ -928,23 +929,45 @@ def _scrolling(eid, text, x, y, font, color, width, display="front"):
                  scroll_start_delay=SCROLL_START_DELAY, scroll_repeat_delay=SCROLL_REPEAT_DELAY)
 
 
-def _pill(prefix, x, y, w, h, fill, text, text_color, display, text_width=None):
-    els = [_rect(prefix + "_bg", x, y, w, h, fill, display)]
-    els[0]["radius"] = 2
-    extra = {}
-    if text_width:
-        extra = dict(width=text_width, scroll_rate=SCROLL_RATE, scroll_start_delay=SCROLL_START_DELAY,
-                     scroll_repeat_delay=SCROLL_REPEAT_DELAY)
-    # small-font caps land 3 px below y, so lift the text to sit centred in the pill
-    els.append(_text(prefix + "_tx", text, x + 3, y - 2, "small", text_color, display, **extra))
-    return els
+def _small_width(txt):
+    # rough advance of the bar's small font: ~4 px per glyph, narrow ones less
+    return sum(2 if ch in " .,:;'il!|" else 4 for ch in txt)
+
+
+def front_elements(card, status, choosing, on_screen, accent, remaining, label, badge):
+    """Front 72x16, after the Flipper demo: options side by side with the chosen one boxed
+    and an arrow, below it the tool glyph and the task title, a countdown line at the bottom."""
+    options = card.options if choosing else []
+    nxt = options[(card.selected + 1) % len(options)].label if len(options) > 1 else ""
+    if card.kind == "question" and nxt and options[(card.selected + 1) % len(options)].value in card.chosen:
+        nxt = "* " + nxt
+    right_edge = 72 - (7 if badge else 0)
+    if choosing or card.kind == "flash":
+        box_w = min(10 + _small_width(status) + 2, 46 if nxt else right_edge)
+        box_color = GREEN if card.kind == "flash" else accent
+    else:
+        box_w, box_color = 1, CLEAR
+    text_color = WHITE if choosing or card.kind == "flash" else GRAY
+    arrow = ">" if choosing else ("+" if card.kind == "flash" else "")
+    return [
+        _rect("f_box", 0, 0, box_w, 9, CLEAR if box_w == 1 else box_color),
+        _rect("f_box_in", 1, 1, max(1, box_w - 2), 7, BLACK if box_w > 1 else CLEAR),
+        _text("f_arrow", arrow, 2, 0, "small", box_color if arrow else CLEAR),
+        _scrolling("f_opt0", status, 8 if arrow else 0, 0, "small", text_color, max(4, box_w - 10) if arrow else right_edge),
+        _scrolling("f_opt1", nxt, box_w + 5, 0, "small", WHITE, max(4, right_edge - box_w - 5)),
+        _text("f_badge", badge, 71, 0, "tiny", GRAY, align="top_right"),
+        _text("f_glyph", card.glyph, 0, 7, "small", Y_GLYPH),
+        _scrolling("f_title", label, 8, 7, "small", WHITE, 64),
+        _rect("f_timer", 0, 15, int(72 * remaining) if remaining is not None else 1, 1,
+              accent if remaining is not None else CLEAR),
+    ]
 
 
 def build_frame(card, count, now):
     """Every element id is sent every frame (hidden ones transparent): the firmware never auto-releases ids.
 
-    Front 72x16: accent icon with the tool glyph, the task title on top, the chosen
-    option as a pill below, a thin countdown line along the top edge.
+    Front 72x16: the options side by side with the chosen one boxed, the tool glyph and
+    task title below, a thin countdown line along the bottom edge.
     Back 160x80: accent header, title, the actual command, the option list."""
     accent = KIND_COLOR.get(card.kind, ORANGE)
     on_screen = card.state == "on_screen" or (not card.options and card.kind != "flash")
@@ -965,18 +988,7 @@ def build_frame(card, count, now):
 
     label = card.label or card.detail
     badge = str(count) if count > 1 else ""
-    pill_fill = accent if choosing or card.kind == "flash" else DIM
-    pill_text = WHITE if choosing or card.kind == "flash" else GRAY
-    pill_w = 58 - (6 if badge else 0)
-    front = [
-        _rect("f_icon", 0, 0, 12, 16, accent),
-        _text("f_glyph", card.glyph, 6, 3, "small", WHITE, align="top_mid"),
-        _rect("f_timer", 14, 0, int(58 * remaining) if remaining is not None else 1, 1,
-              accent if remaining is not None else CLEAR),
-        _scrolling("f_label", label, 14, 1, "small", WHITE, 58 - (6 if badge else 0)),
-        _text("f_badge", badge, 71, 1, "tiny", GRAY, align="top_right"),
-    ]
-    front += _pill("f_pill", 14, 9, pill_w, 7, pill_fill, status, pill_text, "front", text_width=pill_w - 5)
+    front = front_elements(card, status, choosing, on_screen, accent, remaining, label, badge)
 
     back = [
         _rect("b_head", 0, 0, 160, 12, accent, "back"),
