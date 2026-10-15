@@ -70,6 +70,9 @@ PURPLE = "#B06CFFFF"
 KIND_COLOR = {"permission": ORANGE, "plan": BLUE, "question": PURPLE, "notice": GRAY, "flash": GREEN}
 TOOL_GLYPH = {"Bash": "$", "Edit": "E", "Write": "W", "MultiEdit": "E", "NotebookEdit": "E", "Read": "R",
               "WebFetch": "@", "WebSearch": "@", "ExitPlanMode": "P", "AskUserQuestion": "?"}
+TOOL_WORD = {"Bash": "RUN", "Edit": "EDIT", "Write": "WRITE", "MultiEdit": "EDIT", "NotebookEdit": "EDIT",
+             "Read": "READ", "WebFetch": "FETCH", "WebSearch": "SEARCH", "ExitPlanMode": "PLAN",
+             "AskUserQuestion": "ASK"}
 
 SCROLL_RATE = 1500          # pixel columns per minute
 SCROLL_START_DELAY = 800    # ms
@@ -456,8 +459,9 @@ class Card:
     detail: str
     project: str
     surface: str                # iterm | tmux | hold | none
-    label: str = ""             # row 1: task title from the terminal, else Claude's own description
+    label: str = ""             # task title from the terminal, else Claude's own description
     glyph: str = "?"
+    word: str = "RUN"           # action word on the front: RUN, EDIT, PLAN, ASK, MCP
     iterm: str = ""
     tmux: str = ""
     options: list = field(default_factory=list)
@@ -530,7 +534,8 @@ class Store:
 
     def show_flash(self, card, label):
         done = Card(session_id=card.session_id, tool_use_id="", kind="flash", title=card.title,
-                    detail=label, label=card.label, glyph=card.glyph, project=card.project, surface="none")
+                    detail=label, label=card.label, glyph=card.glyph, word=card.word, project=card.project,
+                    surface="none")
         self.flash = (done, time.monotonic() + 1.5)
         self.dirty.set()
 
@@ -664,6 +669,7 @@ def card_from_permission(payload, headers):
                 kind="permission", title=short_tool(tool), detail=describe_input(tool, inp),
                 project=project, surface=surface, iterm=iterm, tmux=tmux, tool_input=inp)
     card.glyph = TOOL_GLYPH.get(tool, "M" if tool.startswith("mcp__") else tool[:1].upper() or "?")
+    card.word = TOOL_WORD.get(tool, "MCP" if tool.startswith("mcp__") else tool[:6].upper())
     card.label = own_label(tool, inp)
     if tool == "ExitPlanMode":
         card.kind = "plan"
@@ -936,7 +942,10 @@ def _small_width(txt):
 
 def front_elements(card, status, choosing, on_screen, accent, remaining, label, badge):
     """Front 72x16, after the Flipper demo: options side by side with the chosen one boxed
-    and an arrow, below it the tool glyph and the task title, a countdown line at the bottom."""
+    and an arrow, below it the action word and the command, a countdown line at the bottom."""
+    word = "DONE" if card.kind == "flash" else card.word
+    word_w = _small_width(word) + 6
+    detail = label if card.kind == "flash" else (card.detail or label)
     options = card.options if choosing else []
     nxt = options[(card.selected + 1) % len(options)].label if len(options) > 1 else ""
     if card.kind == "question" and nxt and options[(card.selected + 1) % len(options)].value in card.chosen:
@@ -956,8 +965,8 @@ def front_elements(card, status, choosing, on_screen, accent, remaining, label, 
         _scrolling("f_opt0", status, 8 if arrow else 0, 0, "small", text_color, max(4, box_w - 10) if arrow else right_edge),
         _scrolling("f_opt1", nxt, box_w + 5, 0, "small", WHITE, max(4, right_edge - box_w - 5)),
         _text("f_badge", badge, 71, 0, "tiny", GRAY, align="top_right"),
-        _text("f_glyph", card.glyph, 0, 7, "small", Y_GLYPH),
-        _scrolling("f_title", label, 8, 7, "small", WHITE, 64),
+        _text("f_word", word, 0, 7, "small", Y_GLYPH),
+        _scrolling("f_detail", detail, word_w, 7, "small", WHITE, 72 - word_w),
         _rect("f_timer", 0, 15, int(72 * remaining) if remaining is not None else 1, 1,
               accent if remaining is not None else CLEAR),
     ]
@@ -966,8 +975,8 @@ def front_elements(card, status, choosing, on_screen, accent, remaining, label, 
 def build_frame(card, count, now):
     """Every element id is sent every frame (hidden ones transparent): the firmware never auto-releases ids.
 
-    Front 72x16: the options side by side with the chosen one boxed, the tool glyph and
-    task title below, a thin countdown line along the bottom edge.
+    Front 72x16: the options side by side with the chosen one boxed, the action word and
+    the command below, a thin countdown line along the bottom edge.
     Back 160x80: accent header, title, the actual command, the option list."""
     accent = KIND_COLOR.get(card.kind, ORANGE)
     on_screen = card.state == "on_screen" or (not card.options and card.kind != "flash")
