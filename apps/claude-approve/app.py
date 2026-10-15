@@ -10,7 +10,7 @@ Claude Code posts every hook event to this app (http hooks, see --print-hooks).
 A PermissionRequest becomes a card on the bar: wheel picks an option, START
 confirms, BACK hands the question back to the screen, OK shows the next
 waiting session. Multiple-choice questions (AskUserQuestion) do not fit the
-display: the bar only says "bekijk terminal" for those. The front shows tool, chosen option and the scrolling detail;
+display: the bar only says "see terminal" for those. The front shows tool, chosen option and the scrolling detail;
 the back OLED shows the project, the full question and the option list.
 
 Two ways to answer, chosen per session:
@@ -605,27 +605,27 @@ def own_label(tool, inp):
 def permission_options(payload, surface):
     suggestions = payload.get("permission_suggestions") or []
     if surface == "hold":
-        opts = [Option("Ja", {"behavior": "allow"})]
+        opts = [Option("Allow", {"behavior": "allow"})]
         if suggestions:
-            opts.append(Option("Ja, onthoud", {"behavior": "allow", "updatedPermissions": suggestions}))
-        opts.append(Option("Nee", {"behavior": "deny", "message": "Denied from the BUSY Bar"}))
+            opts.append(Option("Allow always", {"behavior": "allow", "updatedPermissions": suggestions}))
+        opts.append(Option("Deny", {"behavior": "deny", "message": "Denied from the BUSY Bar"}))
         return opts
-    opts = [Option("Yes", index=0)]
+    opts = [Option("Allow", index=0)]
     if suggestions:
-        opts.append(Option("Yes, remember", index=1))
-    opts.append(Option("No", index=len(opts), esc=(surface == "tmux")))
+        opts.append(Option("Allow always", index=1))
+    opts.append(Option("Deny", index=len(opts), esc=(surface == "tmux")))
     return opts
 
 
 def plan_options(surface):
     if surface == "hold":
         return [
-            Option("Ja, auto-accept", {"behavior": "allow", "updatedPermissions": [
+            Option("Auto-accept edits", {"behavior": "allow", "updatedPermissions": [
                 {"type": "setMode", "mode": "acceptEdits", "destination": "session"}]}),
-            Option("Ja, handmatig", {"behavior": "allow"}),
-            Option("Nee, plannen", {"behavior": "deny", "message": "Keep planning (BUSY Bar)"}),
+            Option("Approve", {"behavior": "allow"}),
+            Option("Keep planning", {"behavior": "deny", "message": "Keep planning (BUSY Bar)"}),
         ]
-    return [Option("Yes, auto-accept", index=0), Option("Yes, manually", index=1), Option("Tell Claude", index=2)]
+    return [Option("Auto-accept edits", index=0), Option("Approve", index=1), Option("Tell Claude", index=2)]
 
 
 def card_from_permission(payload, headers):
@@ -652,7 +652,7 @@ def card_from_permission(payload, headers):
     if tool == "ExitPlanMode":
         card.kind = "plan"
         card.title = "Plan"
-        card.label = "Plan klaar"
+        card.label = "Plan ready"
         first = next((ln.strip("# ").strip() for ln in str(inp.get("plan", "")).splitlines() if ln.strip()), "")
         card.detail = first or "Plan ready"
         card.options = plan_options(surface)
@@ -660,9 +660,9 @@ def card_from_permission(payload, headers):
         # Multiple choice does not fit 72x16: point at the screen, never hold the dialog back
         card.kind = "question"
         q = (inp.get("questions") or [{}])[0]
-        card.title = (q.get("header") or "Vraag")[:12]
-        card.label = q.get("question", "Vraag")
-        card.detail = "bekijk terminal"
+        card.title = (q.get("header") or "Question")[:12]
+        card.label = q.get("question", "Question")
+        card.detail = "see terminal"
         card.state = "on_screen"
     else:
         card.options = permission_options(payload, surface)
@@ -901,7 +901,7 @@ def build_frame(card, count, now):
     if card.kind == "flash":
         status = card.detail
     elif on_screen:
-        status = "op scherm"
+        status = "on screen"
     elif not card.verified:
         status = "..."
     else:
@@ -932,11 +932,11 @@ def build_frame(card, count, now):
             back.append(_rect(f"b_opt{i}_bg", 2, y, 1, 1, CLEAR, "back"))
             back.append(_text(f"b_opt{i}", "", 5, y, "small", CLEAR, "back"))
     if card.kind == "flash":
-        hint = "doorgegeven aan Claude"
+        hint = "sent to Claude"
     elif on_screen:
-        hint = "wacht op je antwoord op het scherm"
+        hint = "waiting for your answer on screen"
     else:
-        hint = "wiel kiest - START bevestigt - BACK naar scherm" + (" - OK volgende" if count > 1 else "")
+        hint = "wheel picks - START confirms - BACK to screen" + (" - OK next" if count > 1 else "")
     back.append(_text("b_hint", hint, 2, 71, "tiny", GRAY, "back"))
     back.append(_rect("b_bar", 0, 78, int(BACK_W * remaining) if remaining is not None else 1, 2,
                       accent if remaining is not None else CLEAR, "back"))
@@ -963,7 +963,7 @@ def hooks_snippet(listen):
 
 def demo_card():
     card = Card(session_id="demo", tool_use_id="demo", kind="permission", title="Bash",
-                detail="git push origin main", label="Release notes schrijven", glyph="$",
+                detail="git push origin main", label="Write release notes", glyph="$",
                 project="busybar-apps", surface="hold")
     card.options = permission_options({"permission_suggestions": [{"type": "addRules"}]}, "hold")
     card.deadline = time.monotonic() + ARGS.window * 0.7
