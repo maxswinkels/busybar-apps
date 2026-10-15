@@ -838,9 +838,11 @@ def _text(eid, text, x, y, font, color, display="front", align="top_left", **ext
     return el
 
 
-def _rect(eid, x, y, w, h, color, display="front"):
+def _rect(eid, x, y, w, h, color, display="front", border=False):
+    """Filled block, or with border=True a 1 px outline in `color` and nothing inside."""
     return {"id": eid, "type": "rectangle", "x": x, "y": y, "width": max(1, w), "height": max(1, h),
-            "radius": 0, "fill": True, "fill_colors": [color], "border_width": 0, "border_color": color,
+            "radius": 0, "fill": not border, "fill_colors": [CLEAR if border else color],
+            "border_width": 1 if border else 0, "border_color": color,
             "display": display, "timeout": ELEMENT_TIMEOUT}
 
 
@@ -873,8 +875,8 @@ def front_elements(card, status, choosing, on_screen, accent, remaining, label, 
     text_color = WHITE if choosing or card.kind == "flash" else GRAY
     arrow = ">" if choosing else ("+" if card.kind == "flash" else "")
     return [
-        _rect("f_box", 0, 0, box_w, 9, CLEAR if box_w == 1 else box_color),
-        _rect("f_box_in", 1, 1, max(1, box_w - 2), 7, BLACK if box_w > 1 else CLEAR),
+        _rect("f_box", 0, 0, box_w, 9, CLEAR if box_w == 1 else box_color, border=box_w > 1),
+        _rect("f_box_in", 0, 0, 1, 1, CLEAR),
         _text("f_arrow", arrow, 2, 0, "small", box_color if arrow else CLEAR),
         _scrolling("f_opt0", status, 8 if arrow else 0, 0, "small", text_color, max(4, box_w - 10) if arrow else right_edge),
         _scrolling("f_opt1", nxt, box_w + 5, 0, "small", WHITE, max(4, right_edge - box_w - 5)),
