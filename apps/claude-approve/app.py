@@ -389,6 +389,7 @@ def send_keys(card, keys):
             elif card.surface == "tmux":
                 subprocess.run(["tmux", "send-keys", "-t", card.tmux, KEYS_TMUX[key]], check=True, timeout=5)
             time.sleep(0.12)
+        print(f"{APP}: typed {'+'.join(keys)} into {card.surface} for {card.title}")
         return True
     except (OSError, subprocess.SubprocessError, KeyError) as exc:
         print(f"{APP}: typing into the terminal failed: {exc}")
