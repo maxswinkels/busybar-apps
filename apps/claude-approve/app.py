@@ -875,8 +875,11 @@ def front_elements(card, status, choosing, on_screen, accent, remaining, label, 
     text_color = WHITE if choosing or card.kind == "flash" else GRAY
     arrow = ">" if choosing else ("+" if card.kind == "flash" else "")
     return [
-        _rect("f_box", 0, 0, box_w, 9, CLEAR if box_w == 1 else box_color, border=box_w > 1),
-        _rect("f_box_in", 0, 0, 1, 1, CLEAR),
+        # the firmware fills every rectangle, so the outline is four 1 px lines
+        _rect("f_box_t", 0, 0, box_w, 1, box_color),
+        _rect("f_box_b", 0, 8, box_w, 1, box_color),
+        _rect("f_box_l", 0, 0, 1, 9, box_color),
+        _rect("f_box_r", max(0, box_w - 1), 0, 1, 9, box_color),
         _text("f_arrow", arrow, 2, 0, "small", box_color if arrow else CLEAR),
         _scrolling("f_opt0", status, 8 if arrow else 0, 0, "small", text_color, max(4, box_w - 10) if arrow else right_edge),
         _scrolling("f_opt1", nxt, box_w + 5, 0, "small", WHITE, max(4, right_edge - box_w - 5)),
