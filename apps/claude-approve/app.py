@@ -7,8 +7,8 @@
     python app.py --print-hooks                 # settings.json snippet
 
 Claude Code posts every hook event to this app (http hooks, see --print-hooks).
-A PermissionRequest becomes a card on the bar: wheel picks an option, OK
-confirms, BACK hands the question back to the screen, START shows the next
+A PermissionRequest becomes a card on the bar: wheel picks an option, START
+confirms, BACK hands the question back to the screen, OK shows the next
 waiting session. The front shows tool, chosen option and the scrolling detail;
 the back OLED shows the project, the full question and the option list.
 
@@ -904,7 +904,7 @@ def build_frame(card, count, now):
                               ORANGE if sel else WHITE, "back"))
         else:
             back.append(_text(f"b_opt{i}", "", 2, 26 + i * 9, "small", CLEAR, "back"))
-    hint = "wacht op je antwoord op het scherm" if on_screen else ("OK kies - BACK scherm" + (" - START volgende" if count > 1 else ""))
+    hint = "wacht op je antwoord op het scherm" if on_screen else ("START kies - BACK scherm" + (" - OK volgende" if count > 1 else ""))
     back.append(_text("b_hint", hint, 0, 72, "tiny", DIM, "back"))
     back.append(_rect("b_bar", 0, 79, int(BACK_W * remaining) if remaining is not None else 1, 1,
                       ORANGE if remaining is not None else CLEAR, "back"))
@@ -966,11 +966,11 @@ def main():
                 if kind == "wheel" and card.answerable:
                     card.selected = (card.selected + (1 if value > 0 else -1)) % len(card.options)
                     STORE.dirty.set()
-                elif kind == "button" and value == "ok":
+                elif kind == "button" and value == "start":
                     confirm(card)
                 elif kind == "button" and value == "back":
                     dismiss(card)
-                elif kind == "button" and value == "start":
+                elif kind == "button" and value == "ok":
                     STORE.rotate()
                 card = STORE.current()
 
