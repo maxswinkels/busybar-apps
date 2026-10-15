@@ -9,7 +9,8 @@
 Claude Code posts every hook event to this app (http hooks, see --print-hooks).
 A PermissionRequest becomes a card on the bar: wheel picks an option, START
 confirms, BACK hands the question back to the screen, OK shows the next
-waiting session. The front shows tool, chosen option and the scrolling detail;
+waiting session. Multiple-choice questions (AskUserQuestion) do not fit the
+display: the bar only says "bekijk terminal" for those. The front shows tool, chosen option and the scrolling detail;
 the back OLED shows the project, the full question and the option list.
 
 Two ways to answer, chosen per session:
@@ -18,8 +19,8 @@ Two ways to answer, chosen per session:
   option labels off the iTerm2 screen) and a button press is typed into that
   terminal as arrow keys and Enter.
 - Anywhere else (desktop app, VS Code): the hook is held for --window seconds
-  and the bar answers it directly: allow, allow and remember, deny, accept-edits
-  for plans, or the chosen answers for AskUserQuestion. After the window the
+  and the bar answers it directly: allow, allow and remember, deny, or
+  accept-edits for plans. After the window the
   normal dialog appears and the card stays as "on screen" until the session moves on.
 
 Setup:
@@ -471,11 +472,7 @@ class Card:
     decision: dict = None
     event: threading.Event = field(default_factory=threading.Event)
     created: float = field(default_factory=time.monotonic)
-    # AskUserQuestion bookkeeping
     tool_input: dict = None
-    question_index: int = 0
-    answers: dict = field(default_factory=dict)
-    chosen: set = field(default_factory=set)
 
     verified: bool = True        # terminal sessions: dialog seen on screen
 
@@ -631,25 +628,6 @@ def plan_options(surface):
     return [Option("Yes, auto-accept", index=0), Option("Yes, manually", index=1), Option("Tell Claude", index=2)]
 
 
-def question_options(card):
-    questions = (card.tool_input or {}).get("questions") or []
-    if card.question_index >= len(questions):
-        return []
-    q = questions[card.question_index]
-    opts = [Option(o.get("label", "?"), index=i, value=o.get("label", "?")) for i, o in enumerate(q.get("options", []))]
-    if q.get("multiSelect"):
-        opts.append(Option("Klaar", value=None, index=len(opts)))
-    return opts
-
-
-def question_text(card):
-    questions = (card.tool_input or {}).get("questions") or []
-    if card.question_index >= len(questions):
-        return ""
-    q = questions[card.question_index]
-    return q.get("question", "?")
-
-
 def card_from_permission(payload, headers):
     iterm = iterm_uuid(headers.get("X-Iterm-Session", ""))
     tmux = headers.get("X-Tmux-Pane", "").strip()
@@ -679,14 +657,17 @@ def card_from_permission(payload, headers):
         card.detail = first or "Plan ready"
         card.options = plan_options(surface)
     elif tool == "AskUserQuestion":
+        # Multiple choice does not fit 72x16: point at the screen, never hold the dialog back
         card.kind = "question"
         q = (inp.get("questions") or [{}])[0]
         card.title = (q.get("header") or "Vraag")[:12]
-        card.detail = question_text(card)
-        card.label = card.detail
-        card.options = question_options(card)
+        card.label = q.get("question", "Vraag")
+        card.detail = "bekijk terminal"
+        card.state = "on_screen"
     else:
         card.options = permission_options(payload, surface)
+    if card.kind == "question":
+        return card
     if surface == "hold":
         card.deadline = time.monotonic() + ARGS.window
     else:
@@ -714,8 +695,7 @@ def verify_on_screen(card):
         if len(labels) >= 2:
             misses = 0
             if not card.verified:
-                if card.kind != "question":
-                    card.options = [Option(lbl[:40], index=i) for i, lbl in enumerate(labels)]
+                card.options = [Option(lbl[:40], index=i) for i, lbl in enumerate(labels)]
                 card.selected = min(card.selected, len(card.options) - 1)
                 card.verified = True
                 STORE.dirty.set()
@@ -731,87 +711,19 @@ def verify_on_screen(card):
 # Acting on a card
 # --------------------------------------------------------------------------
 
-def hook_decision(card, option):
-    """Build the PermissionRequest decision for a held request."""
-    if card.kind != "question":
-        return option.decision
-    questions = card.tool_input.get("questions") or []
-    q = questions[card.question_index]
-    if q.get("multiSelect"):
-        if option.value is not None:
-            card.chosen ^= {option.value}
-            STORE.dirty.set()
-            return None
-        card.answers[q.get("question")] = ", ".join(v for v in [o.get("label") for o in q.get("options", [])] if v in card.chosen)
-    else:
-        card.answers[q.get("question")] = option.value
-    card.question_index += 1
-    card.chosen = set()
-    card.selected = 0
-    if card.question_index < len(questions):
-        card.detail = question_text(card)
-        card.options = question_options(card)
-        STORE.dirty.set()
-        return None
-    updated = dict(card.tool_input)
-    updated["answers"] = card.answers
-    return {"behavior": "allow", "updatedInput": updated}
-
-
 def confirm(card):
     if not card.answerable:
         return
     option = card.options[card.selected]
     if card.surface == "hold":
-        decision = hook_decision(card, option)
-        if decision is None:
-            return
-        card.decision = decision
+        card.decision = option.decision
         card.event.set()
         STORE.remove(card)
         STORE.show_flash(card, option.label)
         return
-    if card.kind == "question":
-        q = (card.tool_input.get("questions") or [{}])[card.question_index]
-        if q.get("multiSelect") and option.value is not None:
-            # multi-select rows toggle with Space in the dialog; mirror that and keep the cursor there
-            card.chosen ^= {option.value}
-            send_keys_space(card, option.index)
-            return
-        send_keys(card, ["down"] * option.index + ["enter"])
-        STORE.show_flash(card, option.label)
-        card.question_index += 1
-        card.selected = 0
-        if card.question_index < len(card.tool_input.get("questions") or []):
-            card.detail = question_text(card)
-            card.options = question_options(card)
-            STORE.dirty.set()
-            return
-        STORE.remove(card)
-        return
     send_keys(card, ["esc"] if option.esc else ["down"] * option.index + ["enter"])
     STORE.remove(card)
     STORE.show_flash(card, option.label)
-
-
-def send_keys_space(card, index):
-    """Toggle a multi-select row: move to it, press Space, move back up."""
-    if ARGS.dry_run:
-        print(f"{APP}: dry-run toggle row {index}")
-        STORE.dirty.set()
-        return
-    try:
-        for key in ["down"] * index + ["space"] + ["up"] * index:
-            if card.surface == "iterm":
-                code = '" "' if key == "space" else KEYS_APPLESCRIPT[key]
-                _osascript(_iterm_script(card.iterm, f"tell s to write text {code} newline NO"))
-            elif card.surface == "tmux":
-                subprocess.run(["tmux", "send-keys", "-t", card.tmux, "Space" if key == "space" else KEYS_TMUX[key]],
-                               check=True, timeout=5)
-            time.sleep(0.12)
-    except (OSError, subprocess.SubprocessError) as exc:
-        print(f"{APP}: typing into the terminal failed: {exc}")
-    STORE.dirty.set()
 
 
 def dismiss(card):
@@ -877,6 +789,8 @@ class HookHandler(BaseHTTPRequestHandler):
             return self._send(200)
         STORE.add(card)
         print(f"{APP}: {card.project} · {card.title} · {card.detail[:60]} ({card.surface})")
+        if card.kind == "question":
+            return self._send(200)
         if card.surface != "hold":
             threading.Thread(target=verify_on_screen, args=(card,), daemon=True).start()
             return self._send(200)
@@ -948,8 +862,8 @@ def front_elements(card, status, choosing, on_screen, accent, remaining, label, 
     detail = label if card.kind == "flash" else (card.detail or label)
     options = card.options if choosing else []
     nxt = options[(card.selected + 1) % len(options)].label if len(options) > 1 else ""
-    if card.kind == "question" and nxt and options[(card.selected + 1) % len(options)].value in card.chosen:
-        nxt = "* " + nxt
+    if card.kind == "question":
+        status = label
     right_edge = 72 - (7 if badge else 0)
     if choosing or card.kind == "flash":
         box_w = min(10 + _small_width(status) + 2, 46 if nxt else right_edge)
@@ -989,8 +903,6 @@ def build_frame(card, count, now):
         status = "..."
     else:
         status = card.options[card.selected].label
-        if card.kind == "question" and card.options[card.selected].value in card.chosen:
-            status = "* " + status
     remaining = None
     if card.deadline and card.state == "pending":
         remaining = max(0.0, card.deadline - now) / max(1, ARGS.window)
@@ -1011,9 +923,8 @@ def build_frame(card, count, now):
         y = 40 + i * 9
         if i < len(rows):
             sel = i == card.selected
-            mark = "* " if card.kind == "question" and rows[i].value in card.chosen else ""
             back.append(_rect(f"b_opt{i}_bg", 2, y, 110, 8, accent if sel else CLEAR, "back"))
-            back.append(_text(f"b_opt{i}", mark + rows[i].label[:30], 5, y - 1, "small", BLACK if sel else WHITE, "back"))
+            back.append(_text(f"b_opt{i}", rows[i].label[:30], 5, y - 1, "small", BLACK if sel else WHITE, "back"))
         else:
             back.append(_rect(f"b_opt{i}_bg", 2, y, 1, 1, CLEAR, "back"))
             back.append(_text(f"b_opt{i}", "", 5, y, "small", CLEAR, "back"))
