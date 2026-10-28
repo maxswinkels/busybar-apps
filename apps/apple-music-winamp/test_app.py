@@ -61,6 +61,20 @@ class WidgetTests(unittest.TestCase):
         self.assertEqual(w.owned,0)
         self.assertIsNone(w.last_label)
 
+    def test_cleanup_400_does_not_block_startup_but_auth_errors_propagate(self):
+        w = self.widget()
+        def reject400(*args, **kwargs):
+            raise urllib.error.HTTPError('url',400,'Bad Request',{},None)
+        w.request = reject400
+        w.clear()
+        def reject401(*args, **kwargs):
+            raise urllib.error.HTTPError('url',401,'Unauthorized',{},None)
+        w.request = reject401
+        with self.assertRaises(urllib.error.HTTPError) as caught:
+            w.clear()
+        self.assertEqual(caught.exception.code,401)
+        caught.exception.close()
+
     def test_icon_frames_are_real_distinct_pngs(self):
         frames = [icon_png(f'bolt-{i}') for i in range(6)]
         self.assertEqual(len(set(frames)),6)

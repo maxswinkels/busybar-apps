@@ -290,11 +290,23 @@ class Widget:
             if not binary:
                 data = json.dumps(data).encode()
         request = urllib.request.Request(self.base + path, data=data, method=method, headers=headers)
-        with urllib.request.urlopen(request, timeout=3) as response:
-            return response.read()
+        try:
+            with urllib.request.urlopen(request, timeout=3) as response:
+                return response.read()
+        except urllib.error.HTTPError as error:
+            detail = error.read(1000).decode('utf-8', errors='replace').strip()
+            error.reason = f'{error.reason} [{request.method} {urllib.parse.urlsplit(path).path}]' + (f': {detail}' if detail else '')
+            raise
 
     def clear(self):
-        self.request('/api/display/draw?application_name=' + APP, method='DELETE')
+        try:
+            self.request('/api/display/draw?application_name=' + APP, method='DELETE')
+        except urllib.error.HTTPError as error:
+            # Some firmware returns 400 when clearing an app with no active display.
+            # Cleanup must not prevent a valid subsequent upload/draw at startup.
+            if error.code != 400:
+                raise
+            error.close()
 
     def state_loop(self):
         while not self.stop.is_set():
