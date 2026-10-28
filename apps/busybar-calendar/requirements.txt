@@ -1,0 +1,13 @@
+# busylib: Flipper's official BUSY Bar client (pre-approved) - LAN and BUSY Cloud.
+busylib>=2.6,<3
+# The calendar side, which the standard library cannot do safely or correctly:
+# httpx speaks CalDAV's PROPFIND/REPORT with Basic and Digest auth,
+httpx>=0.27
+# icalendar parses the events and recurring-ical-events expands RRULE/EXDATE
+# and moved occurrences in their own timezones,
+icalendar>=6
+recurring-ical-events>=3.3
+# defusedxml parses the server's XML without entity expansion attacks,
+defusedxml>=0.7
+# anyascii turns titles in other scripts into text the bar's bitmap fonts draw.
+anyascii>=0.3
