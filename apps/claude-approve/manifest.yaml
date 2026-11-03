@@ -1,0 +1,9 @@
+name: Claude Approve
+author: maxswinkels
+description: Answer Claude Code prompts from the bar - permissions, plan approval and multiple-choice questions - with the wheel and START button.
+tags:
+  - ai
+  - controller
+  - productivity
+  - monitor
+preview: ./preview.png

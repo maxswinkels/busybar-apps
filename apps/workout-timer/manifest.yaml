@@ -1,0 +1,8 @@
+name: Workout Timer
+author: teunbruijnen
+description: Interval timer for Tabata, fixed-rest (work at your own pace) and fixed-work (rest as long as you need) workouts, set up on the bar, with BUSY timer sounds and a recap.
+tags:
+  - timer
+  - fitness
+  - workout
+preview: ./preview.gif

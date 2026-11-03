@@ -1,0 +1,8 @@
+name: GitHub PRs
+author: JayMcConnon
+description: Your open pull requests at a glance. Counts for ready, running, failing and waiting, a scrolling line of what needs you, and a banner when one is ready to merge, fails or gets merged.
+tags:
+  - github
+  - monitor
+  - info
+preview: ./preview.gif

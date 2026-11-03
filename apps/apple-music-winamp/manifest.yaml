@@ -1,0 +1,9 @@
+name: Apple Music Winamp
+author: Nachenko
+description: "macOS Apple Music controls with song, artist, progress, a time counter, decorative Winamp-style visualizers, and animated lightning credits."
+tags:
+  - music
+  - animation
+  - info
+  - effect
+preview: ./preview.gif

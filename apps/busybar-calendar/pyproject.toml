@@ -1,0 +1,43 @@
+[project]
+name = "busybar-calendar"
+version = "0.8.0"
+description = "CalDAV and ICS calendar reminders for the BUSY Bar, drawn the way its Google Calendar integration draws them"
+readme = "README.md"
+license = "MIT AND OFL-1.1"
+license-files = ["LICENSE", "LICENSES/*"]
+requires-python = ">=3.11"
+dependencies = [
+  "busylib>=2.6,<3",
+  "httpx>=0.27",
+  "icalendar>=6",
+  "recurring-ical-events>=3.3",
+  "defusedxml>=0.7",
+  "anyascii>=0.3",
+]
+
+[project.scripts]
+busybar-calendar = "busybar_calendar.cli:main"
+
+[dependency-groups]
+dev = ["pytest>=8", "pytest-asyncio>=0.24", "ruff>=0.6"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF"]
+
+[tool.ruff.lint.per-file-ignores]
+# Non-Latin event titles are the point of these tests.
+"tests/*" = ["RUF001"]
+# The SIGINT handler has to be in place before the first slow import.
+"app.py" = ["E402", "I001"]

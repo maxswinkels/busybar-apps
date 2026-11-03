@@ -43,6 +43,8 @@ Visit the [live gallery](https://maxswinkels.github.io/busybar-apps/) to browse 
 - **Full source code** with syntax highlighting and a copy-to-clipboard button
 - **Manifest metadata** (author, description, tags) and links to the app folder on GitHub
 
+Or see them all at once, right here on GitHub: [apps/README.md](apps/README.md) is a table of every app with its preview, what it does, its author and tags. It is generated from the apps' manifests and kept up to date after every merge.
+
 ## Submit your app
 
 1. **Fork** this repository

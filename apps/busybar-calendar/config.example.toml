@@ -1,0 +1,55 @@
+# An example busybar-calendar config. `busybar-calendar init` writes one for you;
+# every option, with its default, is in docs/configuration.md.
+
+[bar]
+# Leave out `address` to reach the bar through BUSY Cloud, with a token that has
+# the "BUSY Bar" access scope. On your network: address = "192.168.1.50" and the
+# bar's HTTP API password as the token.
+token_command = ["security", "find-generic-password", "-s", "busybar-calendar-bar", "-w"]
+
+[defaults.reminder]
+minutes_before = 5
+
+[defaults.status]
+# Events you marked tentative ("maybe") show as busy too; false keeps only
+# their reminder. They are drawn in yellow; [display] tentative_yellow = false
+# turns that off.
+tentative = true
+
+# A CalDAV account: iCloud, Fastmail, Nextcloud, PrivateEmail, Radicale, ...
+[[sources]]
+name = "iCloud"
+type = "caldav"
+url = "https://caldav.icloud.com"
+username = "me@icloud.com"
+password_command = ["security", "find-generic-password", "-s", "busybar-calendar-icloud", "-w"]
+# Which calendars: names or ids from `busybar-calendar calendars`, * wildcards.
+include = ["Home", "Work"]
+
+# One calendar shown as the bar's own "meeting" status, with an earlier reminder.
+[sources.calendars.Work.reminder]
+minutes_before = 10
+
+[sources.calendars.Work.status]
+show = "meeting"
+
+# A published ICS / webcal link: Outlook's "Publish a calendar", Google's secret
+# address in iCal format, a Proton share link.
+[[sources]]
+name = "Team"
+type = "ics"
+url = "webcal://outlook.office365.com/owa/calendar/.../calendar.ics"
+
+[sources.reminder]
+sound = false
+
+# Settings by event title, from any calendar, on top of the calendar's own.
+# `*` and `?` are wildcards; case does not matter.
+[[titles]]
+match = ["Focus time", "Commute*"]
+reminder.enabled = false
+status.enabled = false
+
+[[titles]]
+match = "Lunch*"
+status.show = "lunch"

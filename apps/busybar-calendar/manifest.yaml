@@ -1,0 +1,11 @@
+name: CalDAV Calendar
+author: kurok
+description: Meeting reminders with a countdown, then a red BUSY while it runs, from any CalDAV or ICS calendar - iCloud, Fastmail, Nextcloud, PrivateEmail or an Outlook link.
+tags:
+  - calendar
+  - caldav
+  - ics
+  - productivity
+  - info
+preview: ./preview.gif
+repo: https://github.com/kurok/busybar-calendar

@@ -7,6 +7,7 @@ preview?" into two commands. Nothing here needs the emulator checked out.
 npm run preview -- waves          # record + render apps/waves/preview.gif
 npm run check -- waves            # validate against CONTRIBUTING.md
 npm run check -- --all            # validate the whole gallery
+npm run index                     # rewrite apps/README.md, the table of every app
 ```
 
 ## Why previews are generated rather than screen-recorded
@@ -96,6 +97,19 @@ slug, `APP` matching the folder, preview exactly 720x160 in PNG or GIF, colours
 `#RRGGBBAA`, every element carrying an `id`, `--host` defaulting to `10.0.4.20`.
 
 `--run` additionally records the app and folds in the behaviour findings.
+
+## `apps_index.py` — the apps index
+
+Writes `apps/README.md`, the page GitHub shows when you open `apps/`: one
+table row per app with its preview, name, author, gallery link, description
+and tags, read from each `manifest.yaml` with the same parser `busycheck.py`
+uses. Apps without a `requirements.txt` are marked *zero-install*.
+
+The output depends only on the apps, never on the date, so an unchanged
+gallery rewrites nothing. The **Apps index** workflow
+(`.github/workflows/apps-index.yml`) runs it after every push to `main` that
+touches `apps/` and commits the file when it changed; submissions do not
+touch it. `python3 tools/apps_index.py --check` exits 1 when it is stale.
 
 ## A note on `npm run preview`
 

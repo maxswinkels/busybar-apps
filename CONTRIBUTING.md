@@ -221,6 +221,9 @@ git commit -m "Add my-app-slug"
 git push origin main
 ```
 
+Leave `apps/README.md` alone: it lists every app and is regenerated from the
+manifests after your PR is merged.
+
 Then go to GitHub and open a pull request. Use this checklist in your PR description:
 
 ```markdown

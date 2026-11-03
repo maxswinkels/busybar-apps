@@ -1,0 +1,52 @@
+name: Apps index
+
+# Keeps apps/README.md - the table of every app - in step with the gallery.
+# After a push to main that touches apps/, it regenerates the file and commits
+# it when it changed, so a submission never has to edit it. Its own commit is
+# made with GITHUB_TOKEN, which does not start workflows: no loop.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/**'
+      - 'tools/apps_index.py'
+      - 'tools/busycheck.py'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: apps-index
+  cancel-in-progress: false
+
+jobs:
+  index:
+    runs-on: ubuntu-latest
+    steps:
+      # The branch's head, not the pushed commit: after two quick merges the
+      # second run must see the first run's index commit too.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Regenerate apps/README.md
+        run: python3 tools/apps_index.py
+
+      - name: Commit it if it changed
+        run: |
+          if git diff --quiet -- apps/README.md; then
+            echo "apps/README.md is already up to date"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add apps/README.md
+          git commit -m "Regenerate the apps index"
+          git pull --rebase --quiet origin "${GITHUB_REF_NAME}"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
