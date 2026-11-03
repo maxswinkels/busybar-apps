@@ -249,57 +249,46 @@ class Fish:
         accent = _blend(tuple(c // 3 for c in accent), accent, 0.35 + 0.65 * daylight)
         eye = (6, 10, 14)
 
+        # Draw every fish facing RIGHT in local coordinates, then mirror the
+        # sprite horizontally for leftward movement. The forked tail is always
+        # behind the fish, while the pointed snout and eye lead the movement.
+        width = self.width
+
+        def pixel(px, py, color):
+            xx = px if self.dir > 0 else width - 1 - px
+            _px(buf, x + xx, y + py, color)
+
         if self.size == 1:
-            # 6x4 fish. Body occupies 4x3, with a 2px triangular tail.
-            if self.dir > 0:
-                _px(buf, x, y + 1, accent)
-                _px(buf, x, y + 2, accent)
-                _px(buf, x + 1, y, base)
-                _rect(buf, x + 1, y + 1, 4, 2, base)
-                _px(buf, x + 1, y + 3, base)
-                _px(buf, x + 4, y, base)
-                _px(buf, x + 4, y + 3, base)
-                _px(buf, x + 4, y + 1, eye)
-                if self.variant == 1:
-                    _px(buf, x + 2, y + 1, accent)
-                elif self.variant == 2:
-                    _px(buf, x + 3, y + 2, accent)
-            else:
-                _px(buf, x + 5, y + 1, accent)
-                _px(buf, x + 5, y + 2, accent)
-                _px(buf, x + 4, y, base)
-                _rect(buf, x + 1, y + 1, 4, 2, base)
-                _px(buf, x + 4, y + 3, base)
-                _px(buf, x + 1, y, base)
-                _px(buf, x + 1, y + 3, base)
-                _px(buf, x + 1, y + 1, eye)
-                if self.variant == 1:
-                    _px(buf, x + 3, y + 1, accent)
-                elif self.variant == 2:
-                    _px(buf, x + 2, y + 2, accent)
+            # 6x4: forked tail at x=0, body in the middle, nose at x=5.
+            for px, py in ((0, 0), (0, 3), (1, 1), (1, 2)):
+                pixel(px, py, accent)
+            for px, py in ((2, 0), (3, 0),
+                           (2, 1), (3, 1), (4, 1), (5, 1),
+                           (2, 2), (3, 2), (4, 2), (5, 2),
+                           (2, 3), (3, 3)):
+                pixel(px, py, base)
+            pixel(4, 1, eye)
+            if self.variant == 1:
+                pixel(3, 2, accent)
+            elif self.variant == 2:
+                pixel(2, 1, accent)
         else:
-            # 9x6 fish, rarer and slower-looking due to its larger silhouette.
-            yy = y
-            if self.dir > 0:
-                _px(buf, x, yy + 2, accent)
-                _px(buf, x, yy + 3, accent)
-                _px(buf, x + 1, yy + 1, accent)
-                _px(buf, x + 1, yy + 4, accent)
-                _rect(buf, x + 2, yy + 1, 5, 4, base)
-                _rect(buf, x + 3, yy, 3, 1, base)
-                _rect(buf, x + 3, yy + 5, 3, 1, base)
-                _px(buf, x + 6, yy + 2, eye)
-                _px(buf, x + 4, yy + 2 + self.variant % 2, accent)
-            else:
-                _px(buf, x + 8, yy + 2, accent)
-                _px(buf, x + 8, yy + 3, accent)
-                _px(buf, x + 7, yy + 1, accent)
-                _px(buf, x + 7, yy + 4, accent)
-                _rect(buf, x + 2, yy + 1, 5, 4, base)
-                _rect(buf, x + 3, yy, 3, 1, base)
-                _rect(buf, x + 3, yy + 5, 3, 1, base)
-                _px(buf, x + 2, yy + 2, eye)
-                _px(buf, x + 4, yy + 2 + self.variant % 2, accent)
+            # 9x6: distinctive forked tail, rounded body and leading snout.
+            for px, py in ((0, 0), (0, 1), (0, 4), (0, 5),
+                           (1, 1), (1, 2), (1, 3), (1, 4)):
+                pixel(px, py, accent)
+            for py in range(1, 5):
+                for px in range(2, 7):
+                    pixel(px, py, base)
+            for px in range(3, 6):
+                pixel(px, 0, base)
+                pixel(px, 5, base)
+            pixel(7, 2, base)
+            pixel(8, 2, base)
+            pixel(7, 3, base)
+            pixel(8, 3, base)
+            pixel(7, 2, eye)
+            pixel(4, 2 + self.variant % 2, accent)
 
 
 class Bubble:
