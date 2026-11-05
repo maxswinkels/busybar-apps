@@ -1,0 +1,44 @@
+[project]
+name = "busybar-cclimits"
+version = "0.3.0"
+description = "Claude Code's usage limits on a BUSY Bar: 5-hour and weekly bars with a countdown to the reset, fed by Claude Code's own status line"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.11"
+dependencies = [
+  "busylib>=2.6,<3",
+]
+
+[project.scripts]
+busybar-cclimits = "busybar_cclimits.cli:main"
+
+[project.urls]
+Repository = "https://github.com/kurok/busybar-cclimits"
+
+[dependency-groups]
+dev = ["pytest>=8", "pytest-asyncio>=0.24", "ruff>=0.6"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+markers = [
+  "emulator: runs against a checkout of the BUSY Bar emulator (BUSYBAR_EMULATOR), see tests/emulator",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF"]
+
+[tool.ruff.lint.per-file-ignores]
+# The SIGINT handler has to be in place before the first slow import.
+"app.py" = ["E402", "I001"]
+# Imports after putting src/ on the path, like app.py.
+"scripts/*" = ["E402"]

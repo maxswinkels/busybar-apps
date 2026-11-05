@@ -1,0 +1,11 @@
+name: Claude Code Limits
+author: kurok
+description: Claude Code's 5-hour, weekly and per-model (Fable) usage limits as bars, with a live countdown to the reset - from the usage endpoint behind Claude Code's /usage.
+tags:
+  - ai
+  - claude
+  - monitor
+  - productivity
+  - info
+preview: ./preview.gif
+repo: https://github.com/kurok/busybar-cclimits

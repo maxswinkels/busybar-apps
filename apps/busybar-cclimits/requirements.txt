@@ -1,0 +1,4 @@
+# busylib: Flipper's official BUSY Bar client (pre-approved) - LAN and BUSY Cloud.
+# Nothing else: the limits come from Claude Code's usage endpoint (or its status
+# line), read with the standard library.
+busylib>=2.6,<3
